@@ -348,7 +348,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		   dest_fd, 0);
 
 	if (ptr == MAP_FAILED) {
-		fprintf(stderr, "Can't read %s\n", srcname);
+		fprintf(stderr, "Can't write %s\n", destname);
 		return -1;
 	}
 
