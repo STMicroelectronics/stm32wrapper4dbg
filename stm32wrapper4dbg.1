@@ -52,6 +52,19 @@ of \fIsrcimage\fP.
 Force adding an additional instance of the wrapper to an image file that
 already contains the wrapper.
 
+.SH EXAMPLES
+Wrap the image in a file, then write it to the first partition of the SD card:
+.sp
+.RS 4
+.nf
+\fB
+stm32wrapper4dbg -f fsbl.stm32 -d wrapped.stm32
+dd if=wrapped.stm32 of=/dev/sdd1
+.fi \fR
+.P
+.RE
+.P
+
 .SH AUTHORS
 Antonio Borneo <antonio.borneo@st.com>
 
