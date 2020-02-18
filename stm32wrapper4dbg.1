@@ -64,6 +64,16 @@ dd if=wrapped.stm32 of=/dev/sdd1
 .P
 .RE
 .P
+Wrap the image in the second partition of the SD card and write it to the first partition of the same SD card:
+.sp
+.RS 4
+.nf
+\fB
+stm32wrapper4dbg -f /dev/sdd2 -d /dev/sdd1
+.fi \fR
+.P
+.RE
+.P
 
 .SH AUTHORS
 Antonio Borneo <antonio.borneo@st.com>

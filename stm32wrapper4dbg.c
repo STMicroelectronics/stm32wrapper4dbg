@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -183,7 +184,7 @@ static void stm32image_print_header(const void *ptr)
 	       __le32_to_cpu(stm32hdr->version_number));
 }
 
-static void stm32image_set_header(void *ptr, struct stat *sbuf, int ifd,
+static void stm32image_set_header(void *ptr, uint32_t file_size, int ifd,
 				  uint32_t loadaddr, uint32_t ep, uint32_t ver,
 				  uint32_t major, uint32_t minor, uint8_t type)
 {
@@ -195,10 +196,10 @@ static void stm32image_set_header(void *ptr, struct stat *sbuf, int ifd,
 	stm32hdr->header_version[VER_MINOR] = minor;
 	stm32hdr->load_address = __cpu_to_le32(loadaddr);
 	stm32hdr->image_entry_point = __cpu_to_le32(ep);
-	stm32hdr->image_length = __cpu_to_le32((uint32_t)sbuf->st_size -
+	stm32hdr->image_length = __cpu_to_le32(file_size -
 					     sizeof(struct stm32_header));
 	stm32hdr->image_checksum =
-		__cpu_to_le32(stm32image_checksum(ptr, sbuf->st_size));
+		__cpu_to_le32(stm32image_checksum(ptr, file_size));
 	stm32hdr->version_number = __cpu_to_le32(ver);
 	stm32hdr->binary_type = type;
 }
@@ -212,7 +213,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	struct stm32_header stm32image_header;
 	struct stm32_header *stm32hdr;
 	unsigned char *src_data;
-	size_t src_size;
+	size_t src_size, dest_size;
 	uint32_t src_length, jmp_add, padding, wrp_loadaddr, wrp_size;
 	uint32_t new_loadaddr, new_entry = 0;
 	uint32_t loadaddr, entry, version, major, minor, option;
@@ -237,6 +238,10 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	}
 
 	src_size = sbuf.st_size;
+	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src_fd, BLKGETSIZE64, &src_size) < 0)) {
+		fprintf(stderr, "Can't read size of %s\n", srcname);
+		return -1;
+	}
 
 	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src_fd, 0);
 	if (ptr == MAP_FAILED) {
@@ -354,11 +359,9 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	munmap((void *)ptr, src_size);
 	close(src_fd);
 
-	if (fstat(dest_fd, &sbuf) < 0) {
-		return -1;
-	}
+	dest_size = sizeof(struct stm32_header) + wrp_size + padding + src_length;
 
-	ptr = mmap(0, sbuf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+	ptr = mmap(0, dest_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		   dest_fd, 0);
 
 	if (ptr == MAP_FAILED) {
@@ -366,7 +369,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	stm32image_set_header(ptr, &sbuf, dest_fd, new_loadaddr, new_entry,
+	stm32image_set_header(ptr, dest_size, dest_fd, new_loadaddr, new_entry,
 			      version, major, minor, type);
 
 	stm32image_print_header(ptr);
@@ -376,7 +379,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		       "\tYou would need to sign the destination file \"%s\"\n",
 		       srcname, destname);
 
-	munmap((void *)ptr, sbuf.st_size);
+	munmap((void *)ptr, dest_size);
 	close(dest_fd);
 	return 0;
 }
