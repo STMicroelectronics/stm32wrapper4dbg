@@ -105,10 +105,14 @@ static int stm32image_check_hdr(void *ptr, uint32_t file_length)
 		return -1;
 	}
 
-	if (__le32_to_cpu(stm32hdr->image_length) != img_length) {
+	if (__le32_to_cpu(stm32hdr->image_length) > img_length) {
 		fprintf(stderr, "Wrong image length\n");
 		return -1;
 	}
+
+	/* There could be padding at the end of input file */
+	img_length = __le32_to_cpu(stm32hdr->image_length);
+	file_length = sizeof(struct stm32_header) + img_length;
 
 	if (__le32_to_cpu(stm32hdr->image_checksum) !=
 	    stm32image_checksum(ptr, file_length)) {
@@ -139,11 +143,12 @@ static int stm32image_check_hdr(void *ptr, uint32_t file_length)
 	return 0;
 }
 
-static int stm32image_check_wrapper(void *ptr, uint32_t file_length)
+static int stm32image_check_wrapper(void *ptr)
 {
 	struct stm32_header *stm32hdr = (struct stm32_header *)ptr;
-	uint32_t loadaddr, entry, pos;
+	uint32_t file_length, loadaddr, entry, pos;
 
+	file_length = sizeof(struct stm32_header) + __le32_to_cpu(stm32hdr->image_length);
 	loadaddr = __le32_to_cpu(stm32hdr->load_address);
 	entry = ARM_THUMB_INSN(__le32_to_cpu(stm32hdr->image_entry_point));
 
@@ -207,6 +212,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	struct stm32_header stm32image_header;
 	struct stm32_header *stm32hdr;
 	unsigned char *src_data;
+	size_t src_size;
 	uint32_t src_length, jmp_add, padding, wrp_loadaddr, wrp_size;
 	uint32_t new_loadaddr, new_entry = 0;
 	uint32_t loadaddr, entry, version, major, minor, option;
@@ -230,28 +236,36 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	ptr = mmap(NULL, sbuf.st_size, PROT_READ, MAP_SHARED, src_fd, 0);
+	src_size = sbuf.st_size;
+
+	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src_fd, 0);
 	if (ptr == MAP_FAILED) {
 		fprintf(stderr, "Can't read %s\n", srcname);
 		return -1;
 	}
 
-	if (stm32image_check_hdr(ptr, sbuf.st_size) < 0) {
+	if (stm32image_check_hdr(ptr, src_size) < 0) {
 		fprintf(stderr, "Not a valid image file %s\n", srcname);
 		return -1;
 	}
 
-	if (force == 0 && stm32image_check_wrapper(ptr, sbuf.st_size) < 0) {
+	stm32hdr = (struct stm32_header *)ptr;
+	src_data = ptr + sizeof(struct stm32_header);
+	src_length = src_size - sizeof(struct stm32_header);
+
+	if (__le32_to_cpu(stm32hdr->image_length) < src_length) {
+                fprintf(stderr, "Strip extra padding from input file\n");
+		src_length = __le32_to_cpu(stm32hdr->image_length);
+		src_size = sizeof(struct stm32_header) + src_length;
+	}
+
+	if (force == 0 && stm32image_check_wrapper(ptr) < 0) {
 		fprintf(stderr,
 			"Wrapper already present in image file %s\n"
 			"Use flag \"-f\" to force re-adding the wrapper\n",
 			srcname);
 		return -1;
 	}
-
-	stm32hdr = (struct stm32_header *)ptr;
-	src_data = ptr + sizeof(struct stm32_header);
-	src_length = sbuf.st_size - sizeof(struct stm32_header);
 
 	major = stm32hdr->header_version[VER_MAJOR];
 	minor = stm32hdr->header_version[VER_MINOR];
@@ -337,7 +351,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		}
 	}
 
-	munmap((void *)ptr, sbuf.st_size);
+	munmap((void *)ptr, src_size);
 	close(src_fd);
 
 	if (fstat(dest_fd, &sbuf) < 0) {
