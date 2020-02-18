@@ -12,7 +12,7 @@ extra_dep :=
 endif
 
 stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
-	$(CC) $(CFLAGS) -Wall -O3 $< -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) -Wall $< -o $@
 
 %.inc: %.bin
 	echo '/* Generated automatically by Makefile */' > $@
