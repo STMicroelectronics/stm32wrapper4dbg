@@ -178,9 +178,9 @@ static void stm32image_print_header(const void *ptr)
 	       __le32_to_cpu(stm32hdr->image_entry_point));
 	printf("Checksum     : 0x%08x\n",
 	       __le32_to_cpu(stm32hdr->image_checksum));
-	printf("Option     : 0x%08x\n",
+	printf("Option       : 0x%08x\n",
 	       __le32_to_cpu(stm32hdr->option_flags));
-	printf("Version	   : 0x%08x\n",
+	printf("Version	     : 0x%08x\n",
 	       __le32_to_cpu(stm32hdr->version_number));
 }
 
@@ -373,6 +373,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			      version, major, minor, type);
 
 	stm32image_print_header(ptr);
+	printf("Halt Address : 0x%08x\n", jmp_add);
 
 	if ((option & 1) == 0)
 		printf("\nATTENTION:\n\tSource file \"%s\" was \"signed\"!\n"
