@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause */
+/* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
 /*
- * Copyright (C) 2019-2010, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2020, STMicroelectronics - All Rights Reserved
  * Author: Antonio Borneo <antonio.borneo@st.com>
  */
 
