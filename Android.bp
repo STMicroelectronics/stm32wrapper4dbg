@@ -1,0 +1,14 @@
+cc_binary_host {
+    name: "stm32wrapper4dbg",
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wno-sign-compare",
+        "-Wno-missing-field-initializers",
+        "-Wno-unused-parameter",
+    ],
+    srcs: [
+        "stm32wrapper4dbg.c",
+    ],
+    stl: "none",
+}
