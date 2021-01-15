@@ -19,6 +19,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define VERSION			"2.0.0"
+
 /* Magic = 'S' 'T' 'M' 0x32 */
 #define HEADER_MAGIC		__be32_to_cpu(0x53544D32)
 #define VER_MAJOR		2
@@ -499,7 +501,7 @@ int main(int argc, char *argv[])
 	int opt, err, wrapper_before = 0, force = 0;
 	char *dest = NULL, *src = NULL;
 
-	while ((opt = getopt(argc, argv, "bfs:d:")) != -1) {
+	while ((opt = getopt(argc, argv, "bfs:d:V")) != -1) {
 		switch (opt) {
 		case 'b':
 			wrapper_before = 1;
@@ -513,9 +515,13 @@ int main(int argc, char *argv[])
 		case 'd':
 			dest = optarg;
 			break;
+		case 'V':
+			fprintf(stderr, "stm32wrapper4dbg version " VERSION "\n");
+			return 0;
 		default:
 			fprintf(stderr,
-				"Usage: %s -s srcfile -d destfile [-b] [-f]\n"
+				"Usage: %1$s -s srcfile -d destfile [-b] [-f]\n"
+				"       %1$s -V\n"
 				"  Add a debug wrapper to a stm32 image.\n"
 				"  If \"-b\" is not specified, the wrapper would be placed\n"
 				"  after the last byte of the image.\n"
@@ -523,7 +529,8 @@ int main(int argc, char *argv[])
 				"  -s srcfile   input image in stm32 file format\n"
 				"  -d destfile  output image in stm32 file format\n"
 				"  -b           place the wrapper before the image\n"
-				"  -f           force re-adding the wrapper\n",
+				"  -f           force re-adding the wrapper\n"
+				"  -V           display tool version and quit\n",
 				argv[0]);
 			return -1;
 		}
