@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
 
 /*
- * Copyright (c) 2017-2020, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2017-2021, STMicroelectronics - All Rights Reserved
  */
 
 #include <asm/byteorder.h>
