@@ -101,6 +101,8 @@ _start:
 	movw	r5, #BSEC_DENABLE_NI
 	str	r5, [r4]
 
+	dsb	sy
+
 	mrc	p15, 0, r6, c14, c0, 0
 	mrrc	p15, 0, r7, r8, c14
 	add	r6, r7, r6, lsl #1
