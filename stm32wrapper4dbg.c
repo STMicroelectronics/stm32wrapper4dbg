@@ -19,7 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define VERSION			"2.0.0"
+#define VERSION			"3.0.0"
 
 /* Magic = 'S' 'T' 'M' 0x32 */
 #define HEADER_MAGIC		__be32_to_cpu(0x53544D32)
@@ -31,6 +31,7 @@
 #define PADDING_HEADER_MAGIC	__be32_to_cpu(0x5354FFFF)
 #define PADDING_HEADER_FLAG	(1 << 31)
 #define PADDING_HEADER_LENGTH	0x180
+#define BIN_TYPE_CM33_IMAGE	0x30
 
 #define ARM_THUMB_ADDRESS(a)	((a) | 1)
 #define ARM_THUMB_INSN(a)	((a) & ~1)
@@ -38,9 +39,24 @@
 #define ALIGN_DOWN(x, a)	((x) & ~((a) - 1))
 #define WRAPPER_ALIGNMENT	64UL
 
-static uint8_t stm32_wrapper[] = {
+#define STM32MP13X_SYSRAM_START	0x2ffe0000
+#define STM32MP13X_SYSRAM_END	0x30000000
+
+static uint8_t stm32_mp1_ca7_wrapper[] = {
 #include "wrapper_stm32mp15x.inc"
 };
+
+static uint8_t stm32_mp2_ca35_wrapper[] = {
+#include "wrapper_stm32mp25x.inc"
+};
+
+static uint8_t stm32_mp2_cm33_wrapper[] = {
+};
+
+static uint8_t *stm32_wrapper;
+static unsigned int stm32_wrapper_size;
+static const char *stm32_wrapper_string;
+static int stm32_wrapper_is_arm_thumb;
 
 struct stm32_header {
 	uint32_t magic_number;
@@ -76,6 +92,13 @@ struct stm32_header {
 			} extension;
 		} v2;
 	};
+};
+
+enum bin_type {
+	BTYPE_UNKNOWN,
+	BTYPE_ARMV7A,
+	BTYPE_ARMV8A_64,
+	BTYPE_ARMV8M,
 };
 
 static uint32_t stm32image_header_length(struct stm32_header *ptr)
@@ -192,6 +215,59 @@ static int stm32image_check_hdr(struct stm32_header *stm32hdr,
 	return 0;
 }
 
+/* Use some heuristics to detect the binary type of the image */
+static enum bin_type stm32image_get_bin_type(struct stm32_header *stm32hdr)
+{
+	uint32_t loadaddr;
+
+	/* stm32mp15x */
+	if (stm32hdr->header_version[VER_MAJOR] == HEADER_VERSION_V1)
+		return BTYPE_ARMV7A;
+
+	/* stm32mp13x */
+	loadaddr = __le32_to_cpu(stm32hdr->load_address);
+	if (loadaddr >= STM32MP13X_SYSRAM_START && loadaddr < STM32MP13X_SYSRAM_END)
+		return BTYPE_ARMV7A;
+
+	/* stm32mp25x CM33 */
+	if (__le32_to_cpu(stm32hdr->v2.binary_type) == BIN_TYPE_CM33_IMAGE)
+		return BTYPE_ARMV8M;
+
+	/* stm32mp25x CA35 */
+	return BTYPE_ARMV8A_64;
+}
+
+static int stm32image_set_wrapper(struct stm32_header *stm32hdr)
+{
+	switch (stm32image_get_bin_type(stm32hdr)) {
+	case BTYPE_ARMV7A:
+		stm32_wrapper = stm32_mp1_ca7_wrapper;
+		stm32_wrapper_size = sizeof(stm32_mp1_ca7_wrapper);
+		stm32_wrapper_string = "STM32MP1xx Cortex-A7";
+		stm32_wrapper_is_arm_thumb = 1;
+		break;
+	case BTYPE_ARMV8A_64:
+		stm32_wrapper = stm32_mp2_ca35_wrapper;
+		stm32_wrapper_size = sizeof(stm32_mp2_ca35_wrapper);
+		stm32_wrapper_string = "STM32MP2xx Cortex-A35";
+		stm32_wrapper_is_arm_thumb = 0;
+		break;
+	case BTYPE_ARMV8M:
+		stm32_wrapper = stm32_mp2_cm33_wrapper;
+		stm32_wrapper_size = sizeof(stm32_mp2_cm33_wrapper);
+		stm32_wrapper_string = "STM32MP2xx Cortex-M33";
+		stm32_wrapper_is_arm_thumb = 1;
+		fprintf(stderr, "Image for Cortex-M33 not supported yet\n");
+		return -1;
+	case BTYPE_UNKNOWN:
+	default:
+		fprintf(stderr, "Cannot detect image type\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int stm32image_check_wrapper(struct stm32_header *stm32hdr)
 {
 	uint32_t file_length, loadaddr, entry, pos, hdr_length;
@@ -202,10 +278,10 @@ static int stm32image_check_wrapper(struct stm32_header *stm32hdr)
 	entry = ARM_THUMB_INSN(__le32_to_cpu(stm32hdr->image_entry_point));
 
 	pos = hdr_length + entry - loadaddr;
-	if (pos + sizeof(stm32_wrapper) + sizeof(uint32_t) > file_length)
+	if (pos + stm32_wrapper_size + sizeof(uint32_t) > file_length)
 		return 0;
 
-	if (memcmp(((char *)stm32hdr) + pos, stm32_wrapper, sizeof(stm32_wrapper)))
+	if (memcmp(((char *)stm32hdr) + pos, stm32_wrapper, stm32_wrapper_size))
 		return 0;
 
 	return -1;
@@ -218,6 +294,7 @@ static void stm32image_print_header(const void *ptr)
 	printf("Image Type   : ST Microelectronics STM32 V%d.%d\n",
 	       stm32hdr->header_version[VER_MAJOR],
 	       stm32hdr->header_version[VER_MINOR]);
+	printf("Image Target : %s\n", stm32_wrapper_string);
 	printf("Image Size   : %lu bytes\n",
 	       (unsigned long)__le32_to_cpu(stm32hdr->image_length));
 	printf("Image Load   : 0x%08x\n",
@@ -346,6 +423,9 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	src_data = ptr + src_hdr_length;
 	src_data_length = src_size - src_hdr_length;
 
+	if (stm32image_set_wrapper(src_hdr) < 0)
+		return -1;
+
 	if (__le32_to_cpu(src_hdr->image_length) < src_data_length) {
                 fprintf(stderr, "Strip extra padding from input file\n");
 		src_data_length = __le32_to_cpu(src_hdr->image_length);
@@ -403,7 +483,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	wrp_size = sizeof(stm32_wrapper) + sizeof(jmp_add);
+	wrp_size = stm32_wrapper_size + sizeof(jmp_add);
 	if (wrapper_before == 1) {
 		wrp_loadaddr = ALIGN_DOWN(loadaddr - wrp_size,
 					  WRAPPER_ALIGNMENT);
@@ -415,12 +495,12 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		new_loadaddr = loadaddr;
 	}
 
-	new_entry = ARM_THUMB_ADDRESS(wrp_loadaddr);
+	new_entry = (stm32_wrapper_is_arm_thumb) ? ARM_THUMB_ADDRESS(wrp_loadaddr) : wrp_loadaddr;
+
 	jmp_add = __cpu_to_le32(entry);
 
 	if (wrapper_before == 1) {
-		if (write(dest_fd, stm32_wrapper, sizeof(stm32_wrapper)) !=
-		    sizeof(stm32_wrapper)) {
+		if (write(dest_fd, stm32_wrapper, stm32_wrapper_size) != stm32_wrapper_size) {
 			fprintf(stderr, "Write error on %s: %s\n", destname,
 				strerror(errno));
 			return -1;
@@ -453,8 +533,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			return -1;
 		}
 
-		if (write(dest_fd, stm32_wrapper, sizeof(stm32_wrapper)) !=
-		    sizeof(stm32_wrapper)) {
+		if (write(dest_fd, stm32_wrapper, stm32_wrapper_size) != stm32_wrapper_size) {
 			fprintf(stderr, "Write error on %s: %s\n", destname,
 				strerror(errno));
 			return -1;
