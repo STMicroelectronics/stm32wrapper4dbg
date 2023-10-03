@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
 /*
- * Copyright (c) 2019-2020, STMicroelectronics - All Rights Reserved
- * Author: Antonio Borneo <antonio.borneo@st.com>
+ * Copyright (c) 2019-2023, STMicroelectronics - All Rights Reserved
+ * Author: Antonio Borneo <antonio.borneo@foss.st.com>
  */
 
 /*
@@ -35,6 +35,11 @@ static inline uint32_t get_dbg_claimclr(void)
 
 	asm volatile("mrc\tp14, 0, %0, c7, c9, 6" : "=r" (val));
 	return val;
+}
+
+static inline void set_dbg_claimclr(uint32_t val)
+{
+	asm volatile("mcr\tp14, 0, %0, c7, c9, 6" : : "r" (val));
 }
 
 static inline uint32_t arch_timer_get_cntfrq(void)
@@ -72,10 +77,13 @@ void __attribute__((noreturn)) wrapper(int a, int b, int c, int d)
 		dt64 = ((int64_t)t1) - ((int64_t)deadline);
 		dt = (int32_t)dt64;
 		if (dt >= 0)
-			break;
+			goto timeout;
 
 	} while ((get_dbg_claimclr() & DBG_CLAIM_0) == 0);
 
+	set_dbg_claimclr(DBG_CLAIM_0);
+
+timeout:
 	denable_val += (BSEC_DENABLE_I - BSEC_DENABLE_NI);
 	write_bsec_denable(denable_val);
 	fsbl(a, b, c, d);
@@ -113,8 +121,10 @@ _start:
 	bpl	.L2
 
 	mrc	p14, 0, r7, c7, c9, 6
-	lsls	r7, r7, #31
-	bpl	.L1
+	ands	r7, r7, #1
+	beq	.L1
+
+	mcr	p14, 0, r7, c7, c9, 6
 
 .L2:
 	ldr	r6, fsbl_ptr
