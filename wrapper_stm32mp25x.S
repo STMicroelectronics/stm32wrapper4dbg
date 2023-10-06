@@ -47,6 +47,11 @@ static inline uint64_t get_dbg_claimclr(void)
 	return val;
 }
 
+static inline void set_dbg_claimclr(uint32_t val)
+{
+	asm volatile("msr\tdbgclaimclr_el1, %0" : : "r" (val));
+}
+
 static inline uint64_t arch_timer_get_cntfrq(void)
 {
 	uint64_t val;
@@ -86,9 +91,12 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 	do {
 		t1 = arch_counter_get_cntpct();
 		if (t1 >= deadline)
-			break;
+			goto timeout;
 	} while ((get_dbg_claimclr() & DBG_CLAIM_0) == 0);
 
+	set_dbg_claimclr(DBG_CLAIM_0);
+
+timeout:
 	denr_val += (BSEC_DENR_I - BSEC_DENR_NI);
 	write_bsec_denr(denr_val);
 
@@ -143,6 +151,9 @@ _start:
 
 	mrs	x7, dbgclaimclr_el1
 	tbz	x7, 0, .L1
+
+	mov	x7, #1
+	msr	dbgclaimclr_el1, x7
 
 .L2:
 	ldr	w6, fsbl_ptr
