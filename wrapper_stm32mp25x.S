@@ -20,6 +20,7 @@
 #define BSEC_DENR_I	0xdeb60fff
 #define BSEC_DENR_NI	(BSEC_DENR_I - 0x00000020)
 #define DBG_CLAIM_0	(1ULL << 0)
+#define STGENC_CNTFID0	0x48080020
 #define DELAY_SECONDS	2
 
 void __attribute__((noreturn)) (*fsbl)(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
@@ -41,7 +42,12 @@ static inline uint64_t arch_timer_get_cntfrq(void)
 {
 	uint64_t val;
 
-	asm volatile("mrs\t%0, cntfrq_el0" : "=r" (val));
+	// BootROM does not initialize cntfrq
+	// asm volatile("mrs\t%0, cntfrq_el0" : "=r" (val));
+	//
+	// Read the frequency from STGEN.
+	// STGEN clock in RCC is already enabled by the BootROM.
+	val = *(volatile uint32_t *)STGENC_CNTFID0;
 	return val;
 }
 
@@ -87,6 +93,7 @@ uint64_t test(uint32_t *p)
 #define BSEC_DENR	0x44000e20
 #define BSEC_DENR_I	0xdeb60fff
 #define BSEC_DENR_NI	0xdeb60fdf
+#define STGENC_CNTFID0	0x48080020
 
 	.arch	armv8-a+crc
 	.text
@@ -101,10 +108,11 @@ _start:
 	dsb	sy
 
 	/*
-	 * BootROM does not set cntfrq_el0. Use hardcoded value instead of
+	 * BootROM does not set cntfrq_el0. Use stgenc_cntfid0 value instead of
 	 * mrs x6, cntfrq_el0
 	 */
-	ldr	w6, .cntfrq_el0_val
+	ldr	w6, .stgenc_cntfid0
+	ldr	w6, [x6]
 	mrs	x7, cntpct_el0
 	add	x6, x7, x6, lsl #1
 
@@ -130,6 +138,6 @@ _start:
 	.word	BSEC_DENR
 .bsec_denr_ni:
 	.word	BSEC_DENR_NI
-.cntfrq_el0_val:
-	.word	32000000
+.stgenc_cntfid0:
+	.word	STGENC_CNTFID0
 fsbl_ptr:
