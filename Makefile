@@ -33,10 +33,10 @@ wrapper_stm32mp25x.bin: wrapper_stm32mp25x.elf
 	$(CROSS_COMPILE_ARM64)objcopy -R .note.gnu.build-id -O binary $< $@
 
 wrapper_stm32mp15x.elf: wrapper_stm32mp15x.S
-	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-Ttext,0x2ffc2500 $< -o $@
+	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
 
 wrapper_stm32mp25x.elf: wrapper_stm32mp25x.S
-	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-Ttext,0x0e012000 $< -o $@
+	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 $< -o $@
 
 .PRECIOUS: %.bin %.elf
 
