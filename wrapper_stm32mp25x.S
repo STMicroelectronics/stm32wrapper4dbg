@@ -14,17 +14,31 @@
  *
  - - %<- - - - - %<- - - - - %<- - - - - %<- - - - - %<- - - - - %<- - - - -
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define BSEC_DENR			0x44000e20
 #define BSEC_DENR_I			0xdeb60fff
 #define BSEC_DENR_NI			(BSEC_DENR_I - 0x00000020)
 #define DBG_CLAIM_0			(1ULL << 0)
+#define RIFSC_RIMC_CR			0x42080c00
+#define RIFSC_RIMC_CR_TDCID_SHIFT	4
+#define RIFSC_RIMC_CR_TDCID_MASK	0x00000070
 #define STGENC_CNTFID0			0x48080020
 #define DELAY_SECONDS			2
+#define TDCID				1
 #define MPIDR_CPUID_MASK		0x0000ffff
 
 void __attribute__((noreturn)) (*fsbl)(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
+
+static bool is_tdcid(void)
+{
+	uint32_t rimc_cr, cid;
+
+	rimc_cr = *(volatile uint32_t *)RIFSC_RIMC_CR;
+	cid = (rimc_cr & RIFSC_RIMC_CR_TDCID_MASK) >> RIFSC_RIMC_CR_TDCID_SHIFT;
+	return cid == TDCID;
+}
 
 static uint32_t cpu_id(void)
 {
@@ -81,6 +95,9 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 	if (cpu_id())
 		goto finish;
 
+	if (!is_tdcid())
+		goto finish;
+
 	denr_val = BSEC_DENR_NI;
 	write_bsec_denr(denr_val);
 
@@ -115,8 +132,12 @@ uint64_t test(uint32_t *p)
 #define BSEC_DENR			0x44000e20
 #define BSEC_DENR_I			0xdeb60fff
 #define BSEC_DENR_NI			0xdeb60fdf
+#define RIFSC_RIMC_CR			0x42080c00
 #define STGENC_CNTFID0			0x48080020
 
+#define RIFSC_RIMC_CR_TDCID_SHIFT	4
+#define RIFSC_RIMC_CR_TDCID_MASK	0x00000070
+#define TDCID				1
 #define MPIDR_CPUID_MASK		0x0000ffff
 
 	.arch	armv8-a+crc
@@ -127,6 +148,12 @@ uint64_t test(uint32_t *p)
 _start:
 	mrs	x4, mpidr_el1
 	tst	x4, #MPIDR_CPUID_MASK
+	bne	.L3
+
+	ldr	w4, .rifsc_rimc_cr
+	ldr	w4, [x4]
+	and	w4, w4, #RIFSC_RIMC_CR_TDCID_MASK
+	cmp	w4, #(TDCID << RIFSC_RIMC_CR_TDCID_SHIFT)
 	bne	.L3
 
 	ldr	w4, .bsec_denr
@@ -173,6 +200,8 @@ _start:
 	.word	BSEC_DENR
 .bsec_denr_ni:
 	.word	BSEC_DENR_NI
+.rifsc_rimc_cr:
+	.word	RIFSC_RIMC_CR
 .stgenc_cntfid0:
 	.word	STGENC_CNTFID0
 fsbl_ptr:
