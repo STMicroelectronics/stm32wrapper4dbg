@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
 /*
- * Copyright (c) 2019-2022, STMicroelectronics - All Rights Reserved
- * Author: Antonio Borneo <antonio.borneo@st.com>
+ * Copyright (c) 2019-2023, STMicroelectronics - All Rights Reserved
+ * Author: Antonio Borneo <antonio.borneo@foss.st.com>
  */
 
 /*
  * The assembly code below has been obtained by manual editing the result
  * of compiling this C code fragment, with the command:
- *   arm-none-eabi-gcc -mcpu=cortex-a7 -Os -mthumb -S wrapper.c
+ *   aarch64-linux-gnu-gcc -mcpu=cortex-a35 -Os -S wrapper.c
  * Use this C code as reference to easily read the assembly and/or to
  * experiment changes to the assembly code.
  * Please keep aligned assembly and C code.
