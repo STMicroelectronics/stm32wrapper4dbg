@@ -19,7 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define VERSION			"3.0.0"
+#define VERSION			"3.1.0"
 
 /* Magic = 'S' 'T' 'M' 0x32 */
 #define HEADER_MAGIC		__be32_to_cpu(0x53544D32)
