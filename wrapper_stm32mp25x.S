@@ -16,14 +16,23 @@
 
 #include <stdint.h>
 
-#define BSEC_DENR	0x44000e20
-#define BSEC_DENR_I	0xdeb60fff
-#define BSEC_DENR_NI	(BSEC_DENR_I - 0x00000020)
-#define DBG_CLAIM_0	(1ULL << 0)
-#define STGENC_CNTFID0	0x48080020
-#define DELAY_SECONDS	2
+#define BSEC_DENR			0x44000e20
+#define BSEC_DENR_I			0xdeb60fff
+#define BSEC_DENR_NI			(BSEC_DENR_I - 0x00000020)
+#define DBG_CLAIM_0			(1ULL << 0)
+#define STGENC_CNTFID0			0x48080020
+#define DELAY_SECONDS			2
+#define MPIDR_CPUID_MASK		0x0000ffff
 
 void __attribute__((noreturn)) (*fsbl)(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
+
+static uint32_t cpu_id(void)
+{
+	uint64_t val;
+
+	asm volatile("mrs\t%0, mpidr_el1" : "=r" (val));
+	return val & MPIDR_CPUID_MASK;
+}
 
 static inline void write_bsec_denr(uint32_t v)
 {
@@ -64,6 +73,9 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 	uint32_t denr_val;
 	uint64_t t0, t1, delay, deadline;
 
+	if (cpu_id())
+		goto finish;
+
 	denr_val = BSEC_DENR_NI;
 	write_bsec_denr(denr_val);
 
@@ -79,6 +91,8 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 
 	denr_val += (BSEC_DENR_I - BSEC_DENR_NI);
 	write_bsec_denr(denr_val);
+
+finish:
 	fsbl(a, b, c, d);
 }
 
@@ -90,10 +104,12 @@ uint64_t test(uint32_t *p)
  - - %<- - - - - %<- - - - - %<- - - - - %<- - - - - %<- - - - - %<- - - - -
 */
 
-#define BSEC_DENR	0x44000e20
-#define BSEC_DENR_I	0xdeb60fff
-#define BSEC_DENR_NI	0xdeb60fdf
-#define STGENC_CNTFID0	0x48080020
+#define BSEC_DENR			0x44000e20
+#define BSEC_DENR_I			0xdeb60fff
+#define BSEC_DENR_NI			0xdeb60fdf
+#define STGENC_CNTFID0			0x48080020
+
+#define MPIDR_CPUID_MASK		0x0000ffff
 
 	.arch	armv8-a+crc
 	.text
@@ -101,6 +117,10 @@ uint64_t test(uint32_t *p)
 	.global	_start
 	.type	_start, %function
 _start:
+	mrs	x4, mpidr_el1
+	tst	x4, #MPIDR_CPUID_MASK
+	bne	.L3
+
 	ldr	w4, .bsec_denr
 	ldr	w5, .bsec_denr_ni
 	str	w5, [x4]
@@ -131,6 +151,10 @@ _start:
 	isb
 	str	w5, [x4]
 
+	br	x6
+
+.L3:
+	ldr	w6, fsbl_ptr
 	br	x6
 
 	.align	2
