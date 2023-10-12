@@ -87,13 +87,25 @@ static inline uint64_t arch_counter_get_cntpct(void)
 	return val;
 }
 
+static inline void wait_for_event(void)
+{
+	asm volatile("wfe");
+}
+
+static inline void send_event(void)
+{
+	asm volatile("sev");
+}
+
 void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
 {
 	uint32_t denr_val;
 	uint64_t t0, t1, delay, deadline;
 
-	if (cpu_id())
+	if (cpu_id()) {
+		wait_for_event();
 		goto finish;
+	}
 
 	if (!is_tdcid())
 		goto finish;
@@ -116,6 +128,8 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 timeout:
 	denr_val += (BSEC_DENR_I - BSEC_DENR_NI);
 	write_bsec_denr(denr_val);
+
+	send_event();
 
 finish:
 	fsbl(a, b, c, d);
@@ -154,7 +168,7 @@ _start:
 	ldr	w4, [x4]
 	and	w4, w4, #RIFSC_RIMC_CR_TDCID_MASK
 	cmp	w4, #(TDCID << RIFSC_RIMC_CR_TDCID_SHIFT)
-	bne	.L3
+	bne	.L4
 
 	ldr	w4, .bsec_denr
 	ldr	w5, .bsec_denr_ni
@@ -187,11 +201,18 @@ _start:
 
 	add	w5, w5, #(BSEC_DENR_I - BSEC_DENR_NI)
 	isb
+	sev
 	str	w5, [x4]
 
 	br	x6
 
 .L3:
+	ldr	w6, fsbl_ptr
+	isb
+	wfe
+	br	x6
+
+.L4:
 	ldr	w6, fsbl_ptr
 	br	x6
 
