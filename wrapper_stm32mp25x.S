@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
 /*
- * Copyright (c) 2019-2023, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2024, STMicroelectronics - All Rights Reserved
  * Author: Antonio Borneo <antonio.borneo@foss.st.com>
  */
 
@@ -102,13 +102,13 @@ void __attribute__((noreturn)) wrapper(uint64_t a, uint64_t b, uint64_t c, uint6
 	uint32_t denr_val;
 	uint64_t t0, t1, delay, deadline;
 
+	if (!is_tdcid())
+		goto finish;
+
 	if (cpu_id()) {
 		wait_for_event();
 		goto finish;
 	}
-
-	if (!is_tdcid())
-		goto finish;
 
 	denr_val = BSEC_DENR_NI;
 	write_bsec_denr(denr_val);
@@ -160,15 +160,15 @@ uint64_t test(uint32_t *p)
 	.global	_start
 	.type	_start, %function
 _start:
-	mrs	x4, mpidr_el1
-	tst	x4, #MPIDR_CPUID_MASK
-	bne	.L3
-
 	ldr	w4, .rifsc_rimc_cr
 	ldr	w4, [x4]
 	and	w4, w4, #RIFSC_RIMC_CR_TDCID_MASK
 	cmp	w4, #(TDCID << RIFSC_RIMC_CR_TDCID_SHIFT)
 	bne	.L4
+
+	mrs	x4, mpidr_el1
+	tst	x4, #MPIDR_CPUID_MASK
+	bne	.L3
 
 	ldr	w4, .bsec_denr
 	ldr	w5, .bsec_denr_ni
