@@ -160,6 +160,8 @@ uint64_t test(uint32_t *p)
 	.global	_start
 	.type	_start, %function
 _start:
+	ldr	w8, fsbl_ptr
+
 	ldr	w4, .rifsc_rimc_cr
 	ldr	w4, [x4]
 	and	w4, w4, #RIFSC_RIMC_CR_TDCID_MASK
@@ -173,8 +175,6 @@ _start:
 	ldr	w4, .bsec_denr
 	ldr	w5, .bsec_denr_ni
 	str	w5, [x4]
-
-	dsb	sy
 
 	/*
 	 * BootROM does not set cntfrq_el0. Use stgenc_cntfid0 value instead of
@@ -197,24 +197,16 @@ _start:
 	msr	dbgclaimclr_el1, x7
 
 .L2:
-	ldr	w6, fsbl_ptr
-
 	add	w5, w5, #(BSEC_DENR_I - BSEC_DENR_NI)
-	isb
 	sev
 	str	w5, [x4]
 
-	br	x6
+	b	.L4
 
 .L3:
-	ldr	w6, fsbl_ptr
-	isb
 	wfe
-	br	x6
-
 .L4:
-	ldr	w6, fsbl_ptr
-	br	x6
+	br	x8
 
 	.align	2
 .bsec_denr:
