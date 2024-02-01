@@ -21,6 +21,8 @@
 
 #define VERSION			"3.1.2"
 
+#define STM32MP25x_REVA		1
+
 /* Magic = 'S' 'T' 'M' 0x32 */
 #define HEADER_MAGIC		__be32_to_cpu(0x53544D32)
 #define VER_MAJOR		2
@@ -28,9 +30,14 @@
 #define VER_VARIANT		0
 #define HEADER_VERSION_V1	0x1
 #define HEADER_VERSION_V2	0x2
+#define HEADER_VERSION_V10	0x00010000
+#define HEADER_VERSION_V20	0x00020000
+#define HEADER_VERSION_V22	0x00020200
+#define HEADER_VERSION_V23	0x00020300
 #define PADDING_HEADER_MAGIC	__be32_to_cpu(0x5354FFFF)
 #define PADDING_HEADER_FLAG	(1 << 31)
 #define PADDING_HEADER_LENGTH	0x180
+#define BIN_TYPE_TF_A_IMAGE	0x10
 #define BIN_TYPE_CM33_IMAGE	0x30
 
 #define ARM_THUMB_ADDRESS(a)	((a) | 1)
@@ -46,6 +53,8 @@
 #define LOG_INFO(x ...)		printf(x)
 #define LOG_ERROR(x ...)	fprintf(stderr, x)
 
+#define ARRAY_SIZE(x)		(sizeof(x) / sizeof(*(x)))
+
 static uint8_t stm32_mp1_ca7_wrapper[] = {
 #include "wrapper_stm32mp15x.inc"
 };
@@ -55,6 +64,12 @@ static uint8_t stm32_mp2_ca35_wrapper[] = {
 };
 
 static uint8_t stm32_mp2_cm33_wrapper[] = {
+};
+
+static uint8_t stm32_mp21_ca35_wrapper[] = {
+};
+
+static uint8_t stm32_mp21_cm33_wrapper[] = {
 };
 
 static bool verbose;
@@ -164,6 +179,95 @@ enum bin_type {
 	BTYPE_ARMV7A,
 	BTYPE_ARMV8A_64,
 	BTYPE_ARMV8M,
+};
+
+struct stm32_soc {
+	const char *name;
+	uint32_t header_version;
+	uint32_t binary_type;
+	uint32_t mem_start;
+	uint32_t mem_end;
+	const uint8_t *wrapper;
+	unsigned int wrapper_size;
+	bool wrapper_is_arm_thumb;
+};
+
+static const struct stm32_soc stm32_socs[] = {
+	{
+		.name =			"STM32MP13x Cortex-A7",
+		.header_version =	HEADER_VERSION_V20,
+		.binary_type =		BIN_TYPE_TF_A_IMAGE,
+		.mem_start =		0x2FFE0000,
+		.mem_end =		0x30000000,
+		.wrapper =		stm32_mp1_ca7_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp1_ca7_wrapper),
+		.wrapper_is_arm_thumb =	true,
+	}, {
+		.name =			"STM32MP15x Cortex-A7",
+		.header_version =	HEADER_VERSION_V10,
+		.binary_type =		BIN_TYPE_TF_A_IMAGE,
+		.mem_start =		0x2FFC0000,
+		.mem_end =		0x30000000,
+		.wrapper =		stm32_mp1_ca7_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp1_ca7_wrapper),
+		.wrapper_is_arm_thumb =	true,
+	}, {
+#ifdef STM32MP25x_REVA
+		.name =			"STM32MP25x Rev.A Cortex-A35",
+		.header_version =	HEADER_VERSION_V20,
+		.binary_type =		BIN_TYPE_TF_A_IMAGE,
+		.mem_start =		0x0E002600,
+		.mem_end =		0x0E040000,
+		.wrapper =		stm32_mp2_ca35_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp2_ca35_wrapper),
+		.wrapper_is_arm_thumb =	false,
+	}, {
+		.name =			"STM32MP25x Rev.A Cortex-M33",
+		.header_version =	HEADER_VERSION_V20,
+		.binary_type =		BIN_TYPE_CM33_IMAGE,
+		.mem_start =		0x0E080000,
+		.mem_end =		0x0E0A0000,
+		.wrapper =		stm32_mp2_cm33_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp2_cm33_wrapper),
+		.wrapper_is_arm_thumb =	true,
+	}, {
+#endif /* STM32MP25x_REVA */
+		.name =			"STM32MP2[35]x Cortex-A35",
+		.header_version =	HEADER_VERSION_V22,
+		.binary_type =		BIN_TYPE_TF_A_IMAGE,
+		.mem_start =		0x0E002600,
+		.mem_end =		0x0E040000,
+		.wrapper =		stm32_mp2_ca35_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp2_ca35_wrapper),
+		.wrapper_is_arm_thumb =	false,
+	}, {
+		.name =			"STM32MP2[35]x Cortex-M33",
+		.header_version =	HEADER_VERSION_V22,
+		.binary_type =		BIN_TYPE_CM33_IMAGE,
+		.mem_start =		0x0E080000,
+		.mem_end =		0x0E0A0000,
+		.wrapper =		stm32_mp2_cm33_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp2_cm33_wrapper),
+		.wrapper_is_arm_thumb =	true,
+	}, {
+		.name =			"STM32MP21x Cortex-A35",
+		.header_version =	HEADER_VERSION_V23,
+		.binary_type =		BIN_TYPE_TF_A_IMAGE,
+		.mem_start =		0x0E002640,
+		.mem_end =		0x0E040000,
+		.wrapper =		stm32_mp21_ca35_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp21_ca35_wrapper),
+		.wrapper_is_arm_thumb =	false,
+	}, {
+		.name =			"STM32MP21x Cortex-M33",
+		.header_version =	HEADER_VERSION_V23,
+		.binary_type =		BIN_TYPE_CM33_IMAGE,
+		.mem_start =		0x0E040000,
+		.mem_end =		0x0E060000,
+		.wrapper =		stm32_mp21_cm33_wrapper,
+		.wrapper_size =		ARRAY_SIZE(stm32_mp21_cm33_wrapper),
+		.wrapper_is_arm_thumb =	true,
+	},
 };
 
 static uint32_t stm32image_header_length(struct stm32_header *ptr)
