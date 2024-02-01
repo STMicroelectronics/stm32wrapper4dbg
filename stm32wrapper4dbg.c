@@ -192,6 +192,18 @@ struct stm32_soc {
 	bool wrapper_is_arm_thumb;
 };
 
+struct stm32_file {
+	void *p;
+	const struct stm32_soc *soc;
+	uint32_t file_header_length;
+	uint32_t image_length;
+	uint32_t image_entry_point;
+	uint32_t load_address;
+	uint32_t version_number;
+	bool is_signed;
+	bool is_encrypted;
+};
+
 static const struct stm32_soc stm32_socs[] = {
 	{
 		.name =			"STM32MP13x Cortex-A7",
@@ -283,6 +295,19 @@ static uint32_t stm32image_header_length(struct stm32_header *ptr)
 	}
 }
 
+static uint32_t stm32_checksum(const uint8_t *p, uint32_t len)
+{
+	uint32_t csum = 0;
+
+	while (len > 0) {
+		csum += *p;
+		p++;
+		len--;
+	}
+
+	return csum;
+}
+
 static uint32_t stm32image_checksum(struct stm32_header *start, uint32_t len,
 				    uint32_t hdr_len)
 {
@@ -305,7 +330,177 @@ static uint32_t stm32image_checksum(struct stm32_header *start, uint32_t len,
 	return csum;
 }
 
-static int stm32image_check_hdr(struct stm32_header *stm32hdr,
+static int stm32image_check_hdr(struct stm32_file *f, uint32_t file_length)
+{
+	const struct stm32_header_v10 *h10 = f->p;
+	const struct stm32_header_v2x *h2x = f->p;
+	const struct stm32_header_v23 *h23 = f->p;
+	const uint8_t *p = f->p;
+	uint32_t header_length, magic_number, image_checksum, header_version;
+	uint32_t image_length, image_entry_point;
+	uint32_t load_address, reserved1, reserved2, version_number, flags, post_headers_length, binary_type;
+	unsigned int padding_start, padding_size;
+	bool is_signed, is_encrypted;
+	unsigned int i, j;
+
+	for (i = 0; i < ARRAY_SIZE(stm32_socs); i++) {
+		LOG_DEBUG("Checking for soc \"%s\"\n", stm32_socs[i].name);
+
+		switch (stm32_socs[i].header_version) {
+		case HEADER_VERSION_V10:
+			header_length = sizeof(*h10);
+			break;
+		case HEADER_VERSION_V20:
+		case HEADER_VERSION_V22:
+			header_length = sizeof(*h2x);
+			break;
+		case HEADER_VERSION_V23:
+			header_length = sizeof(*h23);
+			break;
+		default:
+			continue;
+		}
+
+		if (file_length < header_length) {
+			LOG_DEBUG("File too small\n");
+			continue;
+		}
+
+		switch (stm32_socs[i].header_version) {
+		case HEADER_VERSION_V10:
+			magic_number =		__be32_to_cpu(h10->magic_number);
+			image_checksum =	__le32_to_cpu(h10->image_checksum);
+			header_version =	__le32_to_cpu(h10->header_version);
+			image_length =		__le32_to_cpu(h10->image_length);
+			image_entry_point =	__le32_to_cpu(h10->image_entry_point);
+			load_address =		__le32_to_cpu(h10->load_address);
+			reserved1 =		h10->reserved1;
+			reserved2 =		h10->reserved2;
+			version_number =	__le32_to_cpu(h10->version_number);
+			flags =			__le32_to_cpu(h10->option_flags);
+			post_headers_length =	header_length;
+			binary_type =		h10->binary_type;
+			padding_start =		offsetof(typeof(*h10), padding);
+			padding_size =		sizeof(h10->padding);
+			is_signed =		(flags & 1) == 0;
+			is_encrypted =		false;
+			break;
+
+		case HEADER_VERSION_V20:
+		case HEADER_VERSION_V22:
+			magic_number =		__be32_to_cpu(h2x->magic_number);
+			image_checksum =	__le32_to_cpu(h2x->image_checksum);
+			header_version =	__le32_to_cpu(h2x->header_version);
+			image_length =		__le32_to_cpu(h2x->image_length);
+			image_entry_point =	__le32_to_cpu(h2x->image_entry_point);
+			load_address =		__le32_to_cpu(h2x->load_address);
+			reserved1 =		h2x->reserved1;
+			reserved2 =		h2x->reserved2;
+			version_number =	__le32_to_cpu(h2x->version_number);
+			flags =			__le32_to_cpu(h2x->extension_flags);
+			post_headers_length =	__le32_to_cpu(h2x->post_headers_length) +
+						offsetof(typeof(*h2x), extension_header_type);
+			binary_type =		__le32_to_cpu(h2x->binary_type);
+			padding_start =		offsetof(typeof(*h2x), padding);
+			padding_size =		sizeof(h2x->padding);
+			is_signed =		(flags & 1) != 0;
+			is_encrypted =		(flags & 2) != 0;
+			break;
+
+		case HEADER_VERSION_V23:
+		default:
+			magic_number =		__be32_to_cpu(h23->magic_number);
+			image_checksum =	__le32_to_cpu(h23->image_checksum);
+			header_version =	__le32_to_cpu(h23->header_version);
+			image_length =		__le32_to_cpu(h23->image_length);
+			image_entry_point =	__le32_to_cpu(h23->image_entry_point);
+			load_address =		__le32_to_cpu(h23->load_address);
+			reserved1 =		h23->reserved1;
+			reserved2 =		h23->reserved2;
+			version_number =	__le32_to_cpu(h23->version_number);
+			flags =			__le32_to_cpu(h23->extension_flags);
+			post_headers_length =	__le32_to_cpu(h23->post_headers_length) +
+						offsetof(typeof(*h23), extension_header_type);
+			binary_type =		__le32_to_cpu(h23->binary_type);
+			padding_start =		offsetof(typeof(*h23), padding);
+			padding_size =		sizeof(h23->padding);
+			is_signed =		(flags & 1) != 0;
+			is_encrypted =		(flags & 2) != 0;
+			break;
+		}
+
+		if (magic_number != HEADER_MAGIC) {
+			LOG_DEBUG("Wrong header magic\n");
+			continue;
+		}
+
+		if (header_version != stm32_socs[i].header_version) {
+			LOG_DEBUG("Wrong header version\n");
+			continue;
+		}
+
+		if (binary_type != stm32_socs[i].binary_type) {
+			LOG_DEBUG("Wrong header binary type\n");
+			continue;
+		}
+
+		if (file_length < header_length + image_length) {
+			LOG_DEBUG("File too small\n");
+			continue;
+		}
+
+		if (header_length != post_headers_length) {
+			LOG_DEBUG("Wrong header size\n");
+			continue;
+		}
+
+		if (image_checksum != stm32_checksum(p + header_length, image_length)) {
+			LOG_DEBUG("Wrong image checksum\n");
+			continue;
+		}
+
+		if (reserved1 || reserved2) {
+			LOG_DEBUG("Wrong image, reserved fields not zero\n");
+			continue;
+		}
+
+		for (j = 0; j < padding_size; j++)
+			if (p[padding_start + j])
+				break;
+
+		if (j < padding_size) {
+			LOG_DEBUG("Wrong image, padding not zero\n");
+			continue;
+		}
+
+		if ((image_entry_point < load_address) ||
+		    (image_entry_point >= load_address + image_length)) {
+			LOG_DEBUG("Wrong image entry point\n");
+			continue;
+		}
+
+		if ((load_address < stm32_socs[i].mem_start) ||
+		    (load_address + image_length > stm32_socs[i].mem_end)) {
+			LOG_DEBUG("Image doesn't fit in memory\n");
+			continue;
+		}
+
+		f->soc =		&stm32_socs[i];
+		f->file_header_length =	header_length;
+		f->image_length =	image_length;
+		f->image_entry_point =	image_entry_point;
+		f->load_address =	load_address;
+		f->version_number =	version_number;
+		f->is_signed =		is_signed;
+		f->is_encrypted =	is_encrypted;
+
+		return 0;
+	}
+
+	return -1;
+}
+
+static int stm32image_check_hdr2(struct stm32_header *stm32hdr,
 				uint32_t file_length)
 {
 	uint32_t hdr_length, img_length;
@@ -583,7 +778,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	}
 	src_hdr = (struct stm32_header *)ptr;
 
-	if (stm32image_check_hdr(src_hdr, src_size) < 0) {
+	if (stm32image_check_hdr2(src_hdr, src_size) < 0) {
 		fprintf(stderr, "Not a valid image file %s\n", srcname);
 		return -1;
 	}
