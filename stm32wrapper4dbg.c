@@ -42,6 +42,10 @@
 #define STM32MP13X_SYSRAM_START	0x2ffe0000
 #define STM32MP13X_SYSRAM_END	0x30000000
 
+#define LOG_DEBUG(x ...)	do { if (verbose) printf(x); } while (0)
+#define LOG_INFO(x ...)		printf(x)
+#define LOG_ERROR(x ...)	fprintf(stderr, x)
+
 static uint8_t stm32_mp1_ca7_wrapper[] = {
 #include "wrapper_stm32mp15x.inc"
 };
@@ -53,6 +57,7 @@ static uint8_t stm32_mp2_ca35_wrapper[] = {
 static uint8_t stm32_mp2_cm33_wrapper[] = {
 };
 
+static bool verbose;
 static uint8_t *stm32_wrapper;
 static unsigned int stm32_wrapper_size;
 static const char *stm32_wrapper_string;
@@ -580,7 +585,7 @@ int main(int argc, char *argv[])
 	int opt, err, wrapper_before = 0, force = 0;
 	char *dest = NULL, *src = NULL;
 
-	while ((opt = getopt(argc, argv, "bfs:d:V")) != -1) {
+	while ((opt = getopt(argc, argv, "bfs:d:vV")) != -1) {
 		switch (opt) {
 		case 'b':
 			wrapper_before = 1;
@@ -594,11 +599,14 @@ int main(int argc, char *argv[])
 		case 'd':
 			dest = optarg;
 			break;
+		case 'v':
+			verbose = true;
+			break;
 		case 'V':
-			fprintf(stderr, "stm32wrapper4dbg version " VERSION "\n");
+			LOG_ERROR("stm32wrapper4dbg version " VERSION "\n");
 			return 0;
 		default:
-			fprintf(stderr,
+			LOG_ERROR(
 				"Usage: %1$s -s srcfile -d destfile [-b] [-f]\n"
 				"       %1$s -V\n"
 				"  Add a debug wrapper to a stm32 image.\n"
@@ -609,6 +617,7 @@ int main(int argc, char *argv[])
 				"  -d destfile  output image in stm32 file format\n"
 				"  -b           place the wrapper before the image\n"
 				"  -f           force re-adding the wrapper\n"
+				"  -v           verbose log\n"
 				"  -V           display tool version and quit\n",
 				argv[0]);
 			return -1;
@@ -616,12 +625,12 @@ int main(int argc, char *argv[])
 	}
 
 	if (!src) {
-		fprintf(stderr, "Missing -s option\n");
+		LOG_ERROR("Missing -s option\n");
 		return -1;
 	}
 
 	if (!dest) {
-		fprintf(stderr, "Missing -d option\n");
+		LOG_ERROR("Missing -d option\n");
 		return -1;
 	}
 
