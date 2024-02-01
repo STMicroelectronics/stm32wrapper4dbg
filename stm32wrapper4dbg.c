@@ -63,6 +63,66 @@ static unsigned int stm32_wrapper_size;
 static const char *stm32_wrapper_string;
 static int stm32_wrapper_is_arm_thumb;
 
+struct stm32_header_v10 {
+	uint32_t magic_number;
+	uint8_t image_signature[64];
+	uint32_t image_checksum;
+	uint32_t header_version;
+	uint32_t image_length;
+	uint32_t image_entry_point;
+	uint32_t reserved1;
+	uint32_t load_address;
+	uint32_t reserved2;
+	uint32_t version_number;
+	uint32_t option_flags;
+	uint32_t ecdsa_algorithm;
+	uint8_t ecdsa_public_key[64];
+	uint8_t padding[83];
+	uint8_t binary_type;
+};
+
+struct stm32_header_v2x {
+	uint32_t magic_number;
+	uint8_t image_signature[64];
+	uint32_t image_checksum;
+	uint32_t header_version;
+	uint32_t image_length;
+	uint32_t image_entry_point;
+	uint32_t reserved1;
+	uint32_t load_address;
+	uint32_t reserved2;
+	uint32_t version_number;
+	uint32_t extension_flags;
+	uint32_t post_headers_length;
+	uint32_t binary_type;
+	uint8_t padding[16];
+	uint32_t extension_header_type;
+	uint32_t extension_header_length;
+	uint8_t extension_padding[376];
+};
+
+struct stm32_header_v23 {
+	uint32_t magic_number;
+	uint8_t image_signature[96];
+	uint32_t image_checksum;
+	uint32_t header_version;
+	uint32_t image_length;
+	uint32_t image_entry_point;
+	uint32_t reserved1;
+	uint32_t load_address;
+	uint32_t reserved2;
+	uint32_t version_number;
+	uint32_t extension_flags;
+	uint32_t post_headers_length;
+	uint32_t binary_type;
+	uint8_t padding[8];
+	uint32_t non_secure_payload_length;
+	uint32_t non_secure_payload_hash;
+	uint32_t extension_header_type;
+	uint32_t extension_header_length;
+	uint8_t extension_padding[408];
+};
+
 struct stm32_header {
 	uint32_t magic_number;
 	uint8_t image_signature[64];
