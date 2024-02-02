@@ -25,18 +25,12 @@
 
 /* Magic = 'S' 'T' 'M' 0x32 */
 #define HEADER_MAGIC		0x53544D32
-#define VER_MAJOR		2
-#define VER_MINOR		1
-#define VER_VARIANT		0
-#define HEADER_VERSION_V1	0x1
-#define HEADER_VERSION_V2	0x2
 #define HEADER_VERSION_V10	0x00010000
 #define HEADER_VERSION_V20	0x00020000
 #define HEADER_VERSION_V22	0x00020200
 #define HEADER_VERSION_V23	0x00020300
 #define PADDING_HEADER_MAGIC	0x5354FFFF
 #define PADDING_HEADER_FLAG	(1 << 31)
-#define PADDING_HEADER_LENGTH	0x180
 #define BIN_TYPE_TF_A_IMAGE	0x10
 #define BIN_TYPE_CM33_IMAGE	0x30
 
@@ -45,9 +39,6 @@
 #define ALIGN(x, a)		(((x) + ((a) - 1)) & ~((a) - 1))
 #define ALIGN_DOWN(x, a)	((x) & ~((a) - 1))
 #define WRAPPER_ALIGNMENT	64UL
-
-#define STM32MP13X_SYSRAM_START	0x2ffe0000
-#define STM32MP13X_SYSRAM_END	0x30000000
 
 #define LOG_DEBUG(x ...)	do { if (verbose) printf(x); } while (0)
 #define LOG_INFO(x ...)		printf(x)
@@ -73,10 +64,6 @@ static uint8_t stm32_mp21_cm33_wrapper[] = {
 };
 
 static bool verbose;
-static uint8_t *stm32_wrapper;
-static unsigned int stm32_wrapper_size;
-static const char *stm32_wrapper_string;
-static int stm32_wrapper_is_arm_thumb;
 
 struct stm32_header_v10 {
 	uint32_t magic_number;
@@ -136,49 +123,6 @@ struct stm32_header_v23 {
 	uint32_t extension_header_type;
 	uint32_t extension_header_length;
 	uint8_t extension_padding[408];
-};
-
-struct stm32_header {
-	uint32_t magic_number;
-	uint8_t image_signature[64];
-	uint32_t image_checksum;
-	uint8_t header_version[4];
-	uint32_t image_length;
-	uint32_t image_entry_point;
-	uint32_t reserved1;
-	uint32_t load_address;
-	uint32_t reserved2;
-	uint32_t version_number;
-	union {
-		struct {
-			uint32_t option_flags;
-			uint32_t ecdsa_algorithm;
-			uint8_t ecdsa_public_key[64];
-			uint8_t padding[83];
-			uint8_t binary_type;
-			/* used to get header length */
-			uint8_t _last[0];
-		} v1;
-		struct {
-			uint32_t extension_flags;
-			uint32_t extension_headers_length;
-			uint32_t binary_type;
-			uint8_t padding[16];
-			/* input file can have other extensions */
-			struct {
-				uint32_t type;
-				uint32_t length;
-				uint8_t padding[376];
-			} extension;
-		} v2;
-	};
-};
-
-enum bin_type {
-	BTYPE_UNKNOWN,
-	BTYPE_ARMV7A,
-	BTYPE_ARMV8A_64,
-	BTYPE_ARMV8M,
 };
 
 /* big enough for padding and all header types */
@@ -285,44 +229,9 @@ static const struct stm32_soc stm32_socs[] = {
 	},
 };
 
-static uint32_t stm32image_header_length(struct stm32_header *ptr)
-{
-	switch (ptr->header_version[VER_MAJOR]) {
-	case HEADER_VERSION_V1:
-		return offsetof(struct stm32_header, v1._last);
-	case HEADER_VERSION_V2:
-		return offsetof(struct stm32_header, v2.extension) +
-			__le32_to_cpu(ptr->v2.extension_headers_length);
-	default:
-		return 0;
-	}
-}
-
 static uint32_t stm32_checksum(const uint8_t *p, uint32_t len)
 {
 	uint32_t csum = 0;
-
-	while (len > 0) {
-		csum += *p;
-		p++;
-		len--;
-	}
-
-	return csum;
-}
-
-static uint32_t stm32image_checksum(struct stm32_header *start, uint32_t len,
-				    uint32_t hdr_len)
-{
-	uint32_t csum = 0;
-	uint8_t *p;
-
-	if (len < hdr_len) {
-		return 0;
-	}
-
-	p = (unsigned char *)start + hdr_len;
-	len -= hdr_len;
 
 	while (len > 0) {
 		csum += *p;
@@ -503,138 +412,6 @@ static int stm32image_check_hdr(struct stm32_file *f, uint32_t file_length)
 	return -1;
 }
 
-static int stm32image_check_hdr2(struct stm32_header *stm32hdr,
-				uint32_t file_length)
-{
-	uint32_t hdr_length, img_length;
-
-	if (file_length <= offsetof(struct stm32_header, v1)) {
-		fprintf(stderr, "File too small\n");
-		return -1;
-	}
-
-	if (stm32hdr->magic_number != HEADER_MAGIC) {
-		fprintf(stderr, "Wrong header magic\n");
-		return -1;
-	}
-
-	hdr_length = stm32image_header_length(stm32hdr);
-	if (hdr_length == 0) {
-		fprintf(stderr, "Unknown header version\n");
-		return -1;
-	}
-
-	if (file_length <= hdr_length) {
-		fprintf(stderr, "File too small\n");
-		return -1;
-	}
-
-	img_length = file_length - hdr_length;
-	if (__le32_to_cpu(stm32hdr->image_length) > img_length) {
-		fprintf(stderr, "Wrong image length\n");
-		return -1;
-	}
-
-	/* There could be padding at the end of input file */
-	img_length = __le32_to_cpu(stm32hdr->image_length);
-	file_length = hdr_length + img_length;
-
-	if (__le32_to_cpu(stm32hdr->image_checksum) !=
-	    stm32image_checksum(stm32hdr, file_length, hdr_length)) {
-		fprintf(stderr, "Wrong image checksum\n");
-		return -1;
-	}
-
-	if (stm32hdr->reserved1 || stm32hdr->reserved2) {
-		fprintf(stderr, "Wrong image, reserved fields not zero\n");
-		return -1;
-	}
-
-	switch (stm32hdr->header_version[VER_MAJOR]) {
-	case HEADER_VERSION_V1:
-		for (int i = 0; i < sizeof(stm32hdr->v1.padding); i++) {
-			if (stm32hdr->v1.padding[i]) {
-				fprintf(stderr, "Wrong image, padding not zero\n");
-				return -1;
-			}
-		}
-		break;
-	case HEADER_VERSION_V2:
-		for (int i = 0; i < sizeof(stm32hdr->v2.padding); i++) {
-			if (stm32hdr->v2.padding[i]) {
-				fprintf(stderr, "Wrong image, padding not zero\n");
-				return -1;
-			}
-		}
-		break;
-	default:
-		return -1;
-	}
-
-	if ((__le32_to_cpu(stm32hdr->image_entry_point) <
-	     __le32_to_cpu(stm32hdr->load_address)) ||
-	    (__le32_to_cpu(stm32hdr->image_entry_point) >=
-	     __le32_to_cpu(stm32hdr->load_address) + img_length)) {
-		fprintf(stderr, "Wrong image entry point\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-/* Use some heuristics to detect the binary type of the image */
-static enum bin_type stm32image_get_bin_type(struct stm32_header *stm32hdr)
-{
-	uint32_t loadaddr;
-
-	/* stm32mp15x */
-	if (stm32hdr->header_version[VER_MAJOR] == HEADER_VERSION_V1)
-		return BTYPE_ARMV7A;
-
-	/* stm32mp13x */
-	loadaddr = __le32_to_cpu(stm32hdr->load_address);
-	if (loadaddr >= STM32MP13X_SYSRAM_START && loadaddr < STM32MP13X_SYSRAM_END)
-		return BTYPE_ARMV7A;
-
-	/* stm32mp25x CM33 */
-	if (__le32_to_cpu(stm32hdr->v2.binary_type) == BIN_TYPE_CM33_IMAGE)
-		return BTYPE_ARMV8M;
-
-	/* stm32mp25x CA35 */
-	return BTYPE_ARMV8A_64;
-}
-
-static int stm32image_set_wrapper(struct stm32_header *stm32hdr)
-{
-	switch (stm32image_get_bin_type(stm32hdr)) {
-	case BTYPE_ARMV7A:
-		stm32_wrapper = stm32_mp1_ca7_wrapper;
-		stm32_wrapper_size = sizeof(stm32_mp1_ca7_wrapper);
-		stm32_wrapper_string = "STM32MP1xx Cortex-A7";
-		stm32_wrapper_is_arm_thumb = 1;
-		break;
-	case BTYPE_ARMV8A_64:
-		stm32_wrapper = stm32_mp2_ca35_wrapper;
-		stm32_wrapper_size = sizeof(stm32_mp2_ca35_wrapper);
-		stm32_wrapper_string = "STM32MP2xx Cortex-A35";
-		stm32_wrapper_is_arm_thumb = 0;
-		break;
-	case BTYPE_ARMV8M:
-		stm32_wrapper = stm32_mp2_cm33_wrapper;
-		stm32_wrapper_size = sizeof(stm32_mp2_cm33_wrapper);
-		stm32_wrapper_string = "STM32MP2xx Cortex-M33";
-		stm32_wrapper_is_arm_thumb = 1;
-		fprintf(stderr, "Image for Cortex-M33 not supported yet\n");
-		return -1;
-	case BTYPE_UNKNOWN:
-	default:
-		fprintf(stderr, "Cannot detect image type\n");
-		return -1;
-	}
-
-	return 0;
-}
-
 static int stm32image_check_wrapper(const struct stm32_file *f)
 {
 	uint32_t entry, offset;
@@ -653,25 +430,6 @@ static int stm32image_check_wrapper(const struct stm32_file *f)
 	return -1;
 }
 
-static int stm32image_check_wrapper2(struct stm32_header *stm32hdr)
-{
-	uint32_t file_length, loadaddr, entry, pos, hdr_length;
-
-	hdr_length = stm32image_header_length(stm32hdr);
-	file_length = hdr_length + __le32_to_cpu(stm32hdr->image_length);
-	loadaddr = __le32_to_cpu(stm32hdr->load_address);
-	entry = ARM_THUMB_INSN(__le32_to_cpu(stm32hdr->image_entry_point));
-
-	pos = hdr_length + entry - loadaddr;
-	if (pos + stm32_wrapper_size + sizeof(uint32_t) > file_length)
-		return 0;
-
-	if (memcmp(((char *)stm32hdr) + pos, stm32_wrapper, stm32_wrapper_size))
-		return 0;
-
-	return -1;
-}
-
 static void stm32image_print_header(const struct stm32_file *f)
 {
 	LOG_INFO("Image Type   : STMicroelectronics STM32 V%d.%d\n",
@@ -682,74 +440,6 @@ static void stm32image_print_header(const struct stm32_file *f)
 	LOG_INFO("Image Load   : 0x%08x\n", f->load_address);
 	LOG_INFO("Entry Point  : 0x%08x\n", f->image_entry_point);
 	LOG_INFO("Version      : 0x%08x\n", f->version_number);
-}
-
-static void stm32image_print_header2(const void *ptr)
-{
-	struct stm32_header *stm32hdr = (struct stm32_header *)ptr;
-
-	printf("Image Type   : ST Microelectronics STM32 V%d.%d\n",
-	       stm32hdr->header_version[VER_MAJOR],
-	       stm32hdr->header_version[VER_MINOR]);
-	printf("Image Target : %s\n", stm32_wrapper_string);
-	printf("Image Size   : %lu bytes\n",
-	       (unsigned long)__le32_to_cpu(stm32hdr->image_length));
-	printf("Image Load   : 0x%08x\n",
-	       __le32_to_cpu(stm32hdr->load_address));
-	printf("Entry Point  : 0x%08x\n",
-	       __le32_to_cpu(stm32hdr->image_entry_point));
-	printf("Checksum     : 0x%08x\n",
-	       __le32_to_cpu(stm32hdr->image_checksum));
-
-	switch (stm32hdr->header_version[VER_MAJOR]) {
-	case HEADER_VERSION_V1:
-		printf("Option       : 0x%08x\n",
-		       __le32_to_cpu(stm32hdr->v1.option_flags));
-		break;
-
-	case HEADER_VERSION_V2:
-		printf("Extension    : 0x%08x\n",
-		       __le32_to_cpu(stm32hdr->v2.extension_flags));
-		break;
-
-	default:
-		printf("Incorrect header version\n");
-	}
-
-	printf("Version	     : 0x%08x\n",
-	       __le32_to_cpu(stm32hdr->version_number));
-}
-
-static int stm32image_init_header(struct stm32_header *dest_hdr,
-				  struct stm32_header *src_hdr)
-{
-	memset(dest_hdr, 0, sizeof(struct stm32_header));
-
-	dest_hdr->magic_number = HEADER_MAGIC;
-	dest_hdr->version_number = src_hdr->version_number;
-	dest_hdr->header_version[VER_MAJOR] = src_hdr->header_version[VER_MAJOR];
-	dest_hdr->header_version[VER_MINOR] = src_hdr->header_version[VER_MINOR];
-	switch (src_hdr->header_version[VER_MAJOR]) {
-	case HEADER_VERSION_V1:
-		/* Default option for header v1 : bit0 => no signature */
-		dest_hdr->v1.option_flags = __cpu_to_le32(0x00000001);
-		dest_hdr->v1.ecdsa_algorithm = __cpu_to_le32(1);
-		dest_hdr->v1.binary_type = src_hdr->v1.binary_type;
-		break;
-	case HEADER_VERSION_V2:
-		dest_hdr->v2.binary_type = src_hdr->v2.binary_type;
-		dest_hdr->v2.extension_flags =
-			__cpu_to_le32(PADDING_HEADER_FLAG);
-		dest_hdr->v2.extension_headers_length =
-			__cpu_to_le32(PADDING_HEADER_LENGTH);
-		dest_hdr->v2.extension.type = PADDING_HEADER_MAGIC;
-		dest_hdr->v2.extension.length =
-			__cpu_to_le32(PADDING_HEADER_LENGTH);
-		break;
-	default:
-		return -1;
-	}
-	return 0;
 }
 
 static int stm32image_update_header(const struct stm32_file *f)
@@ -811,22 +501,6 @@ static int stm32image_update_header(const struct stm32_file *f)
 		break;
 	}
 
-	return 0;
-}
-
-static int stm32image_update_header2(void *ptr, uint32_t file_size,
-				    uint32_t loadaddr, uint32_t ep)
-{
-	struct stm32_header *stm32hdr = (struct stm32_header *)ptr;
-	uint32_t hdr_length;
-
-	hdr_length = stm32image_header_length(stm32hdr);
-
-	stm32hdr->load_address = __cpu_to_le32(loadaddr);
-	stm32hdr->image_entry_point = __cpu_to_le32(ep);
-	stm32hdr->image_length = __cpu_to_le32(file_size - hdr_length);
-	stm32hdr->image_checksum =
-		__cpu_to_le32(stm32image_checksum(stm32hdr, file_size, hdr_length));
 	return 0;
 }
 
