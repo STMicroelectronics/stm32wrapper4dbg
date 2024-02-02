@@ -632,7 +632,25 @@ static int stm32image_set_wrapper(struct stm32_header *stm32hdr)
 	return 0;
 }
 
-static int stm32image_check_wrapper(struct stm32_header *stm32hdr)
+static int stm32image_check_wrapper(const struct stm32_file *f)
+{
+	uint32_t entry, offset;
+	uint8_t *ptr;
+
+	entry = ARM_THUMB_INSN(f->image_entry_point);
+
+	offset = entry - f->load_address;
+	if (offset + f->soc->wrapper_size + sizeof(uint32_t) > f->image_length)
+		return 0;
+
+	ptr = f->p;
+	if (memcmp(ptr + f->file_header_length + offset, f->soc->wrapper, f->soc->wrapper_size))
+		return 0;
+
+	return -1;
+}
+
+static int stm32image_check_wrapper2(struct stm32_header *stm32hdr)
 {
 	uint32_t file_length, loadaddr, entry, pos, hdr_length;
 
@@ -796,7 +814,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		src_size = src_hdr_length + src_data_length;
 	}
 
-	if (force == 0 && stm32image_check_wrapper(src_hdr) < 0) {
+	if (force == 0 && stm32image_check_wrapper2(src_hdr) < 0) {
 		fprintf(stderr,
 			"Wrapper already present in image file %s\n"
 			"Use flag \"-f\" to force re-adding the wrapper\n",
