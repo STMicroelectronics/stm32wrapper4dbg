@@ -669,7 +669,19 @@ static int stm32image_check_wrapper2(struct stm32_header *stm32hdr)
 	return -1;
 }
 
-static void stm32image_print_header(const void *ptr)
+static void stm32image_print_header(const struct stm32_file *f)
+{
+	LOG_INFO("Image Type   : STMicroelectronics STM32 V%d.%d\n",
+		 (f->soc->header_version >> 16) & 0xFF,
+		 (f->soc->header_version >> 8) & 0xFF);
+	LOG_INFO("Image Target : %s\n", f->soc->name);
+	LOG_INFO("Image Size   : %u bytes\n", f->image_length);
+	LOG_INFO("Image Load   : 0x%08x\n", f->load_address);
+	LOG_INFO("Entry Point  : 0x%08x\n", f->image_entry_point);
+	LOG_INFO("Version      : 0x%08x\n", f->version_number);
+}
+
+static void stm32image_print_header2(const void *ptr)
 {
 	struct stm32_header *stm32hdr = (struct stm32_header *)ptr;
 
@@ -944,7 +956,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 
 	stm32image_update_header(ptr, dest_size, new_loadaddr, new_entry);
 
-	stm32image_print_header(ptr);
+	stm32image_print_header2(ptr);
 	printf("Halt Address : 0x%08x\n", jmp_add);
 
 	if (is_signed)
