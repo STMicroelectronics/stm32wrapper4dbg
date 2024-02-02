@@ -749,7 +749,69 @@ static int stm32image_init_header(struct stm32_header *dest_hdr,
 	return 0;
 }
 
-static int stm32image_update_header(void *ptr, uint32_t file_size,
+static int stm32image_update_header(const struct stm32_file *f)
+{
+	struct stm32_header_v10 *h10 = f->p;
+	struct stm32_header_v2x *h2x = f->p;
+	struct stm32_header_v23 *h23 = f->p;
+	uint8_t *p = f->p;
+	uint32_t crc, extension_length;
+
+	crc = stm32_checksum(p + f->file_header_length, f->image_length);
+
+	switch (f->soc->header_version) {
+	case HEADER_VERSION_V10:
+		h10->magic_number =		__cpu_to_be32(HEADER_MAGIC);
+		h10->version_number =		__cpu_to_le32(f->version_number);
+		h10->header_version =		__cpu_to_le32(f->soc->header_version);
+		h10->binary_type =		f->soc->binary_type;
+		h10->option_flags =		__cpu_to_le32(0x00000001);
+		h10->ecdsa_algorithm =		__cpu_to_le32(1);
+		h10->image_length =		__cpu_to_le32(f->image_length);
+		h10->image_entry_point =	__cpu_to_le32(f->image_entry_point);
+		h10->load_address =		__cpu_to_le32(f->load_address);
+		h10->image_checksum =		__cpu_to_le32(crc);
+		break;
+
+	case HEADER_VERSION_V20:
+	case HEADER_VERSION_V22:
+		extension_length = sizeof(*h2x) - offsetof(typeof(*h2x), extension_header_type);
+		h2x->magic_number =		__cpu_to_be32(HEADER_MAGIC);
+		h2x->version_number =		__cpu_to_le32(f->version_number);
+		h2x->header_version =		__cpu_to_le32(f->soc->header_version);
+		h2x->binary_type =		__cpu_to_le32(f->soc->binary_type);
+		h2x->extension_flags =		__cpu_to_le32(PADDING_HEADER_FLAG);
+		h2x->post_headers_length =	__cpu_to_le32(extension_length);
+		h2x->extension_header_type =	__cpu_to_be32(PADDING_HEADER_MAGIC);
+		h2x->extension_header_length =	__cpu_to_le32(extension_length);
+		h2x->image_length =		__cpu_to_le32(f->image_length);
+		h2x->image_entry_point =	__cpu_to_le32(f->image_entry_point);
+		h2x->load_address =		__cpu_to_le32(f->load_address);
+		h2x->image_checksum =		__cpu_to_le32(crc);
+		break;
+
+	case HEADER_VERSION_V23:
+	default:
+		extension_length = sizeof(*h23) - offsetof(typeof(*h23), extension_header_type);
+		h23->magic_number =		__cpu_to_be32(HEADER_MAGIC);
+		h23->version_number =		__cpu_to_le32(f->version_number);
+		h23->header_version =		__cpu_to_le32(f->soc->header_version);
+		h23->binary_type =		__cpu_to_le32(f->soc->binary_type);
+		h23->extension_flags =		__cpu_to_le32(PADDING_HEADER_FLAG);
+		h23->post_headers_length =	__cpu_to_le32(extension_length);
+		h23->extension_header_type =	__cpu_to_be32(PADDING_HEADER_MAGIC);
+		h23->extension_header_length =	__cpu_to_le32(extension_length);
+		h23->image_length =		__cpu_to_le32(f->image_length);
+		h23->image_entry_point =	__cpu_to_le32(f->image_entry_point);
+		h23->load_address =		__cpu_to_le32(f->load_address);
+		h23->image_checksum =		__cpu_to_le32(crc);
+		break;
+	}
+
+	return 0;
+}
+
+static int stm32image_update_header2(void *ptr, uint32_t file_size,
 				    uint32_t loadaddr, uint32_t ep)
 {
 	struct stm32_header *stm32hdr = (struct stm32_header *)ptr;
@@ -954,7 +1016,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	stm32image_update_header(ptr, dest_size, new_loadaddr, new_entry);
+	stm32image_update_header2(ptr, dest_size, new_loadaddr, new_entry);
 
 	stm32image_print_header2(ptr);
 	printf("Halt Address : 0x%08x\n", jmp_add);
