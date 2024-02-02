@@ -24,7 +24,7 @@
 #define STM32MP25x_REVA		1
 
 /* Magic = 'S' 'T' 'M' 0x32 */
-#define HEADER_MAGIC		__be32_to_cpu(0x53544D32)
+#define HEADER_MAGIC		0x53544D32
 #define VER_MAJOR		2
 #define VER_MINOR		1
 #define VER_VARIANT		0
@@ -34,7 +34,7 @@
 #define HEADER_VERSION_V20	0x00020000
 #define HEADER_VERSION_V22	0x00020200
 #define HEADER_VERSION_V23	0x00020300
-#define PADDING_HEADER_MAGIC	__be32_to_cpu(0x5354FFFF)
+#define PADDING_HEADER_MAGIC	0x5354FFFF
 #define PADDING_HEADER_FLAG	(1 << 31)
 #define PADDING_HEADER_LENGTH	0x180
 #define BIN_TYPE_TF_A_IMAGE	0x10
@@ -180,6 +180,9 @@ enum bin_type {
 	BTYPE_ARMV8A_64,
 	BTYPE_ARMV8M,
 };
+
+/* big enough for padding and all header types */
+static const uint8_t zero_buffer[2048];
 
 struct stm32_soc {
 	const char *name;
@@ -830,26 +833,21 @@ static int stm32image_update_header2(void *ptr, uint32_t file_size,
 static int stm32image_create_header_file(char *srcname, char *destname,
 					 int wrapper_before, int force)
 {
+	struct stm32_file src = { NULL, };
+	struct stm32_file dst = { NULL, };
 	int src_fd, dest_fd;
 	struct stat sbuf;
-	unsigned char *ptr;
-	struct stm32_header stm32image_header;
-	struct stm32_header *src_hdr;
+	uint8_t *ptr;
 	uint32_t src_hdr_length, dest_hdr_length;
 	unsigned char *src_data;
 	size_t src_size, dest_size;
 	uint32_t src_data_length, jmp_add, padding, wrp_loadaddr, wrp_size;
 	uint32_t new_loadaddr, new_entry = 0;
-	uint32_t loadaddr, entry, option;
-	bool is_signed, is_encrypted;
-	unsigned char padding_zeros[WRAPPER_ALIGNMENT];
-
-	memset(padding_zeros, 0, sizeof(padding_zeros));
+	uint32_t loadaddr, entry;
 
 	src_fd = open(srcname, O_RDONLY);
 	if (src_fd == -1) {
-		fprintf(stderr, "Can't open %s: %s\n", srcname,
-			strerror(errno));
+		LOG_ERROR("Can't open %s: %s\n", srcname, strerror(errno));
 		return -1;
 	}
 
@@ -859,87 +857,59 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 
 	src_size = sbuf.st_size;
 	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src_fd, BLKGETSIZE64, &src_size) < 0)) {
-		fprintf(stderr, "Can't read size of %s\n", srcname);
+		LOG_ERROR("Can't read size of %s\n", srcname);
 		return -1;
 	}
 
 	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src_fd, 0);
 	if (ptr == MAP_FAILED) {
-		fprintf(stderr, "Can't read %s\n", srcname);
+		LOG_ERROR("Can't read %s\n", srcname);
 		return -1;
 	}
-	src_hdr = (struct stm32_header *)ptr;
+	src.p = ptr;
 
-	if (stm32image_check_hdr2(src_hdr, src_size) < 0) {
-		fprintf(stderr, "Not a valid image file %s\n", srcname);
+	if (stm32image_check_hdr(&src, src_size) < 0) {
+		LOG_ERROR("Not a valid image file %s\n", srcname);
 		return -1;
 	}
 
-	src_hdr_length = stm32image_header_length(src_hdr);
+	src_hdr_length = src.file_header_length;
 	src_data = ptr + src_hdr_length;
-	src_data_length = src_size - src_hdr_length;
+	src_data_length = src.image_length;
 
-	if (stm32image_set_wrapper(src_hdr) < 0)
-		return -1;
+	if (src_hdr_length + src_data_length < src_size)
+                LOG_INFO("Strip extra padding from input file\n");
 
-	if (__le32_to_cpu(src_hdr->image_length) < src_data_length) {
-                fprintf(stderr, "Strip extra padding from input file\n");
-		src_data_length = __le32_to_cpu(src_hdr->image_length);
-		src_size = src_hdr_length + src_data_length;
-	}
-
-	if (force == 0 && stm32image_check_wrapper2(src_hdr) < 0) {
-		fprintf(stderr,
-			"Wrapper already present in image file %s\n"
-			"Use flag \"-f\" to force re-adding the wrapper\n",
-			srcname);
+	if (force == 0 && stm32image_check_wrapper(&src) < 0) {
+		LOG_ERROR("Wrapper already present in image file %s\n"
+			  "Use flag \"-f\" to force re-adding the wrapper\n",
+			  srcname);
 		return -1;
 	}
 
-	entry = __le32_to_cpu(src_hdr->image_entry_point);
-	loadaddr = __le32_to_cpu(src_hdr->load_address);
+	entry = src.image_entry_point;
+	loadaddr = src.load_address;
 
-	switch (src_hdr->header_version[VER_MAJOR]) {
-	case HEADER_VERSION_V1:
-		option = __le32_to_cpu(src_hdr->v1.option_flags);
-		is_signed = (option & 1) == 0;
-		is_encrypted = false;
-		break;
-	case HEADER_VERSION_V2:
-		option = __le32_to_cpu(src_hdr->v2.extension_flags);
-		is_signed = (option & 1) != 0;
-		is_encrypted = (option & 2) != 0;
-		break;
-	default:
-		return -1;
-	}
-
-	if (is_encrypted) {
-		fprintf(stderr,
-			"Image %s is encrypted. Unable to extract the content.\n",
-			srcname);
+	if (src.is_encrypted) {
+		LOG_ERROR("Image %s is encrypted. Unable to extract the content.\n",
+			  srcname);
 		return -1;
 	}
 
 	dest_fd = open(destname, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
 	if (dest_fd == -1) {
-		fprintf(stderr, "Can't open %s: %s\n", destname,
-			strerror(errno));
+		LOG_ERROR("Can't open %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
 
-	if (stm32image_init_header(&stm32image_header, src_hdr) < 0)
-		return -1;
+	dest_hdr_length = src_hdr_length;
 
-	dest_hdr_length = stm32image_header_length(&stm32image_header);
-
-	if (write(dest_fd, &stm32image_header, dest_hdr_length) != dest_hdr_length) {
-		fprintf(stderr, "Write error %s: %s\n", destname,
-			strerror(errno));
+	if (write(dest_fd, zero_buffer, dest_hdr_length) != dest_hdr_length) {
+		LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
 
-	wrp_size = stm32_wrapper_size + sizeof(jmp_add);
+	wrp_size = src.soc->wrapper_size + sizeof(jmp_add);
 	if (wrapper_before == 1) {
 		wrp_loadaddr = ALIGN_DOWN(loadaddr - wrp_size,
 					  WRAPPER_ALIGNMENT);
@@ -951,54 +921,47 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		new_loadaddr = loadaddr;
 	}
 
-	new_entry = (stm32_wrapper_is_arm_thumb) ? ARM_THUMB_ADDRESS(wrp_loadaddr) : wrp_loadaddr;
+	new_entry = (src.soc->wrapper_is_arm_thumb) ? ARM_THUMB_ADDRESS(wrp_loadaddr) : wrp_loadaddr;
 
 	jmp_add = __cpu_to_le32(entry);
 
 	if (wrapper_before == 1) {
-		if (write(dest_fd, stm32_wrapper, stm32_wrapper_size) != stm32_wrapper_size) {
-			fprintf(stderr, "Write error on %s: %s\n", destname,
-				strerror(errno));
+		if (write(dest_fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
 		if (write(dest_fd, &jmp_add, sizeof(jmp_add)) !=
 		    sizeof(jmp_add)) {
-			fprintf(stderr, "Write error %s: %s\n", destname,
-				strerror(errno));
+			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, padding_zeros, padding) != padding) {
-			fprintf(stderr, "Write error %s: %s\n", destname,
-				strerror(errno));
+		if (write(dest_fd, zero_buffer, padding) != padding) {
+			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 	}
 
 	if (write(dest_fd, src_data, src_data_length) != src_data_length) {
-		fprintf(stderr, "Write error on %s: %s\n", destname,
-			strerror(errno));
+		LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
 
 	if (wrapper_before == 0) {
-		if (write(dest_fd, padding_zeros, padding) != padding) {
-			fprintf(stderr, "Write error %s: %s\n", destname,
-				strerror(errno));
+		if (write(dest_fd, zero_buffer, padding) != padding) {
+			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, stm32_wrapper, stm32_wrapper_size) != stm32_wrapper_size) {
-			fprintf(stderr, "Write error on %s: %s\n", destname,
-				strerror(errno));
+		if (write(dest_fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
 		if (write(dest_fd, &jmp_add, sizeof(jmp_add)) !=
 		    sizeof(jmp_add)) {
-			fprintf(stderr, "Write error on %s: %s\n", destname,
-				strerror(errno));
+			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 	}
@@ -1012,19 +975,26 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		   dest_fd, 0);
 
 	if (ptr == MAP_FAILED) {
-		fprintf(stderr, "Can't write %s\n", destname);
+		LOG_ERROR("Can't write %s\n", destname);
 		return -1;
 	}
+	dst.p = ptr;
+	dst.soc = src.soc;
+	dst.file_header_length = dest_hdr_length;
+	dst.version_number =	src.version_number;
+	dst.image_length =	wrp_size + padding + src_data_length;
+	dst.image_entry_point =	new_entry;
+	dst.load_address =	new_loadaddr;
 
-	stm32image_update_header2(ptr, dest_size, new_loadaddr, new_entry);
+	stm32image_update_header(&dst);
 
-	stm32image_print_header2(ptr);
-	printf("Halt Address : 0x%08x\n", jmp_add);
+	stm32image_print_header(&dst);
+	LOG_INFO("Halt Address : 0x%08x\n", jmp_add);
 
-	if (is_signed)
-		printf("\nATTENTION:\n\tSource file \"%s\" was \"signed\"!\n"
-		       "\tYou would need to sign the destination file \"%s\"\n",
-		       srcname, destname);
+	if (src.is_signed)
+		LOG_INFO("\nATTENTION:\n\tSource file \"%s\" was \"signed\"!\n"
+			 "\tYou would need to sign the destination file \"%s\"\n",
+			 srcname, destname);
 
 	munmap((void *)ptr, dest_size);
 	close(dest_fd);
