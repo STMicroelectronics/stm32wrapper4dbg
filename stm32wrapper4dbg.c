@@ -19,7 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define VERSION			"3.1.2"
+#define VERSION			"4.0.0"
 
 #define STM32MP25x_REVA		1
 
