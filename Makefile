@@ -16,7 +16,7 @@ extra_dep :=
 endif
 
 ifeq ($(xtool_64_missing),0)
-extra_dep += wrapper_stm32mp25x.inc
+extra_dep += wrapper_stm32mp25x_ca35.inc
 endif
 
 stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
@@ -29,16 +29,16 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 wrapper_stm32mp15x_ca7.bin: wrapper_stm32mp15x_ca7.elf
 	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
 
-wrapper_stm32mp25x.bin: wrapper_stm32mp25x.elf
+wrapper_stm32mp25x_ca35.bin: wrapper_stm32mp25x_ca35.elf
 	$(CROSS_COMPILE_ARM64)objcopy -O binary $< $@
 
 wrapper_stm32mp15x_ca7.elf: wrapper_stm32mp15x_ca7.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
 
-wrapper_stm32mp25x.elf: wrapper_stm32mp25x.S
+wrapper_stm32mp25x_ca35.elf: wrapper_stm32mp25x_ca35.S
 	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none $< -o $@
 
 .PRECIOUS: %.bin %.elf
 
 clean:
-	rm -f stm32wrapper4dbg wrapper_stm32mp15x_ca7.bin wrapper_stm32mp15x_ca7.elf wrapper_stm32mp25x.bin wrapper_stm32mp25x.elf $(extra_dep)
+	rm -f stm32wrapper4dbg wrapper_stm32mp15x_ca7.bin wrapper_stm32mp15x_ca7.elf wrapper_stm32mp25x_ca35.bin wrapper_stm32mp25x_ca35.elf $(extra_dep)
