@@ -47,7 +47,7 @@
 #define ARRAY_SIZE(x)		(sizeof(x) / sizeof(*(x)))
 
 static uint8_t stm32_mp1_ca7_wrapper[] = {
-#include "wrapper_stm32mp15x.inc"
+#include "wrapper_stm32mp15x_ca7.inc"
 };
 
 static uint8_t stm32_mp2_ca35_wrapper[] = {

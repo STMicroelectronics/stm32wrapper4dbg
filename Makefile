@@ -10,7 +10,7 @@ xtool_64_missing := $(shell type -t $(CROSS_COMPILE_ARM64){gcc,objdump} > /dev/n
 
 # Without cross compiler, don't remove or rebuild it
 ifeq ($(xtool_32_missing),0)
-extra_dep := wrapper_stm32mp15x.inc
+extra_dep := wrapper_stm32mp15x_ca7.inc
 else
 extra_dep :=
 endif
@@ -26,13 +26,13 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 	echo '/* Generated automatically by Makefile */' > $@
 	od -v -A n -t x1 $< | sed 's/ *\(..\) */0x\1,/g' >> $@
 
-wrapper_stm32mp15x.bin: wrapper_stm32mp15x.elf
+wrapper_stm32mp15x_ca7.bin: wrapper_stm32mp15x_ca7.elf
 	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
 
 wrapper_stm32mp25x.bin: wrapper_stm32mp25x.elf
 	$(CROSS_COMPILE_ARM64)objcopy -O binary $< $@
 
-wrapper_stm32mp15x.elf: wrapper_stm32mp15x.S
+wrapper_stm32mp15x_ca7.elf: wrapper_stm32mp15x_ca7.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
 
 wrapper_stm32mp25x.elf: wrapper_stm32mp25x.S
@@ -41,4 +41,4 @@ wrapper_stm32mp25x.elf: wrapper_stm32mp25x.S
 .PRECIOUS: %.bin %.elf
 
 clean:
-	rm -f stm32wrapper4dbg wrapper_stm32mp15x.bin wrapper_stm32mp15x.elf wrapper_stm32mp25x.bin wrapper_stm32mp25x.elf $(extra_dep)
+	rm -f stm32wrapper4dbg wrapper_stm32mp15x_ca7.bin wrapper_stm32mp15x_ca7.elf wrapper_stm32mp25x.bin wrapper_stm32mp25x.elf $(extra_dep)
