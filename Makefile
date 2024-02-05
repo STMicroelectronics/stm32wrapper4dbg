@@ -26,19 +26,19 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 	echo '/* Generated automatically by Makefile */' > $@
 	od -v -A n -t x1 $< | sed 's/ *\(..\) */0x\1,/g' >> $@
 
-wrapper_stm32mp15x_ca7.bin: wrapper_stm32mp15x_ca7.elf
+%_ca7.bin: %_ca7.elf
 	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
 
-wrapper_stm32mp25x_ca35.bin: wrapper_stm32mp25x_ca35.elf
+%_ca35.bin: %_ca35.elf
 	$(CROSS_COMPILE_ARM64)objcopy -O binary $< $@
 
-wrapper_stm32mp15x_ca7.elf: wrapper_stm32mp15x_ca7.S
+%_ca7.elf: %_ca7.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
 
-wrapper_stm32mp25x_ca35.elf: wrapper_stm32mp25x_ca35.S
+%_ca35.elf: %_ca35.S
 	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none $< -o $@
 
-.PRECIOUS: %.bin %.elf
+.PRECIOUS: %_ca7.bin %_ca35.bin %_ca7.elf %_ca35.elf
 
 clean:
-	rm -f stm32wrapper4dbg wrapper_stm32mp15x_ca7.bin wrapper_stm32mp15x_ca7.elf wrapper_stm32mp25x_ca35.bin wrapper_stm32mp25x_ca35.elf $(extra_dep)
+	rm -f stm32wrapper4dbg wrapper_stm32*.bin wrapper_stm32mp*.elf $(extra_dep)
