@@ -55,6 +55,7 @@ static uint8_t stm32_mp2_ca35_wrapper[] = {
 };
 
 static uint8_t stm32_mp2_cm33_wrapper[] = {
+#include "wrapper_stm32mp25x_cm33.inc"
 };
 
 static uint8_t stm32_mp21_ca35_wrapper[] = {

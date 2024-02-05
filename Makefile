@@ -10,7 +10,7 @@ xtool_64_missing := $(shell type -t $(CROSS_COMPILE_ARM64){gcc,objdump} > /dev/n
 
 # Without cross compiler, don't remove or rebuild it
 ifeq ($(xtool_32_missing),0)
-extra_dep := wrapper_stm32mp15x_ca7.inc
+extra_dep := wrapper_stm32mp15x_ca7.inc wrapper_stm32mp25x_cm33.inc
 else
 extra_dep :=
 endif
@@ -29,16 +29,22 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 %_ca7.bin: %_ca7.elf
 	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
 
+%_cm33.bin: %_cm33.elf
+	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
+
 %_ca35.bin: %_ca35.elf
 	$(CROSS_COMPILE_ARM64)objcopy -O binary $< $@
 
 %_ca7.elf: %_ca7.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
 
+%_cm33.elf: %_cm33.S
+	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e080000 $< -o $@
+
 %_ca35.elf: %_ca35.S
 	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none $< -o $@
 
-.PRECIOUS: %_ca7.bin %_ca35.bin %_ca7.elf %_ca35.elf
+.PRECIOUS: %_ca7.bin %_ca35.bin %_cm33.bin %_ca7.elf %_ca35.elf %_cm33.elf
 
 clean:
 	rm -f stm32wrapper4dbg wrapper_stm32*.bin wrapper_stm32mp*.elf $(extra_dep)
