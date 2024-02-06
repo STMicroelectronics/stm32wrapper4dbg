@@ -16,7 +16,7 @@ extra_dep :=
 endif
 
 ifeq ($(xtool_64_missing),0)
-extra_dep += wrapper_stm32mp25x_ca35.inc
+extra_dep += wrapper_stm32mp21x_ca35.inc wrapper_stm32mp25x_ca35.inc
 endif
 
 stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
