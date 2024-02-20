@@ -873,6 +873,11 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
+	if (!src.soc->wrapper_size) {
+		LOG_ERROR("Image \"%s\" not supported yet\n", src.soc->name);
+		return -1;
+	}
+
 	src_hdr_length = src.file_header_length;
 	src_data = ptr + src_hdr_length;
 	src_data_length = src.image_length;
