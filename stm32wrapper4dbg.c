@@ -398,6 +398,13 @@ static int stm32image_check_hdr(struct stm32_file *f, uint32_t file_length)
 			continue;
 		}
 
+		if (binary_type == BIN_TYPE_CM33_IMAGE &&
+		    image_length >= 8 &&
+		    image_entry_point != __le32_to_cpu(*(uint32_t *)(p + header_length + 4))) {
+			LOG_DEBUG("Image entry point mismatches reset vector\n");
+			continue;
+		}
+
 		f->soc =		&stm32_socs[i];
 		f->file_header_length =	header_length;
 		f->image_length =	image_length;
@@ -450,6 +457,9 @@ static int stm32image_update_header(const struct stm32_file *f)
 	struct stm32_header_v23 *h23 = f->p;
 	uint8_t *p = f->p;
 	uint32_t crc, extension_length;
+
+	if (f->soc->binary_type == BIN_TYPE_CM33_IMAGE)
+		*(uint32_t *)(p + f->file_header_length + 4) = __cpu_to_le32(f->image_entry_point);
 
 	crc = stm32_checksum(p + f->file_header_length, f->image_length);
 
