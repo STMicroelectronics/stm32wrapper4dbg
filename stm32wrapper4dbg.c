@@ -523,7 +523,6 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	struct stm32_file src = { NULL, };
 	struct stm32_file dst = { NULL, };
 	struct stat sbuf;
-	uint8_t *ptr;
 	uint32_t src_hdr_length, dest_hdr_length;
 	unsigned char *src_data;
 	size_t src_size, dest_size;
@@ -547,12 +546,11 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src.fd, 0);
-	if (ptr == MAP_FAILED) {
+	src.p = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src.fd, 0);
+	if (src.p == MAP_FAILED) {
 		LOG_ERROR("Can't read %s\n", srcname);
 		return -1;
 	}
-	src.p = ptr;
 
 	if (stm32image_check_hdr(&src, src_size) < 0) {
 		LOG_ERROR("Not a valid image file %s\n", srcname);
@@ -565,7 +563,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	}
 
 	src_hdr_length = src.file_header_length;
-	src_data = ptr + src_hdr_length;
+	src_data = ((uint8_t *)src.p) + src_hdr_length;
 	src_data_length = src.image_length;
 
 	if (src_hdr_length + src_data_length < src_size)
@@ -657,19 +655,18 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		}
 	}
 
-	munmap((void *)ptr, src_size);
+	munmap(src.p, src_size);
 	close(src.fd);
 
 	dest_size = dest_hdr_length + wrp_size + padding + src_data_length;
 
-	ptr = mmap(0, dest_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+	dst.p = mmap(0, dest_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		   dst.fd, 0);
 
-	if (ptr == MAP_FAILED) {
+	if (dst.p == MAP_FAILED) {
 		LOG_ERROR("Can't write %s\n", destname);
 		return -1;
 	}
-	dst.p = ptr;
 	dst.soc = src.soc;
 	dst.file_header_length = dest_hdr_length;
 	dst.version_number =	src.version_number;
@@ -687,7 +684,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			 "\tYou would need to sign the destination file \"%s\"\n",
 			 srcname, destname);
 
-	munmap((void *)ptr, dest_size);
+	munmap(dst.p, dest_size);
 	close(dst.fd);
 	return 0;
 }
