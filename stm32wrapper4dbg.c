@@ -144,6 +144,7 @@ struct stm32_soc {
 struct stm32_file {
 	void *p;
 	const struct stm32_soc *soc;
+	int fd;
 	uint32_t file_header_length;
 	uint32_t image_length;
 	uint32_t image_entry_point;
@@ -521,7 +522,6 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 {
 	struct stm32_file src = { NULL, };
 	struct stm32_file dst = { NULL, };
-	int src_fd, dest_fd;
 	struct stat sbuf;
 	uint8_t *ptr;
 	uint32_t src_hdr_length, dest_hdr_length;
@@ -531,23 +531,23 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	uint32_t new_loadaddr, new_entry = 0;
 	uint32_t loadaddr, entry;
 
-	src_fd = open(srcname, O_RDONLY);
-	if (src_fd == -1) {
+	src.fd = open(srcname, O_RDONLY);
+	if (src.fd == -1) {
 		LOG_ERROR("Can't open %s: %s\n", srcname, strerror(errno));
 		return -1;
 	}
 
-	if (fstat(src_fd, &sbuf) < 0) {
+	if (fstat(src.fd, &sbuf) < 0) {
 		return -1;
 	}
 
 	src_size = sbuf.st_size;
-	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src_fd, BLKGETSIZE64, &src_size) < 0)) {
+	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src.fd, BLKGETSIZE64, &src_size) < 0)) {
 		LOG_ERROR("Can't read size of %s\n", srcname);
 		return -1;
 	}
 
-	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src_fd, 0);
+	ptr = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src.fd, 0);
 	if (ptr == MAP_FAILED) {
 		LOG_ERROR("Can't read %s\n", srcname);
 		return -1;
@@ -587,15 +587,15 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	dest_fd = open(destname, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
-	if (dest_fd == -1) {
+	dst.fd = open(destname, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
+	if (dst.fd == -1) {
 		LOG_ERROR("Can't open %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
 
 	dest_hdr_length = src_hdr_length;
 
-	if (write(dest_fd, zero_buffer, dest_hdr_length) != dest_hdr_length) {
+	if (write(dst.fd, zero_buffer, dest_hdr_length) != dest_hdr_length) {
 		LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
@@ -617,40 +617,40 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	jmp_add = __cpu_to_le32(entry);
 
 	if (wrapper_before == 1) {
-		if (write(dest_fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+		if (write(dst.fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
 			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, &jmp_add, sizeof(jmp_add)) !=
+		if (write(dst.fd, &jmp_add, sizeof(jmp_add)) !=
 		    sizeof(jmp_add)) {
 			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, zero_buffer, padding) != padding) {
+		if (write(dst.fd, zero_buffer, padding) != padding) {
 			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 	}
 
-	if (write(dest_fd, src_data, src_data_length) != src_data_length) {
+	if (write(dst.fd, src_data, src_data_length) != src_data_length) {
 		LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 		return -1;
 	}
 
 	if (wrapper_before == 0) {
-		if (write(dest_fd, zero_buffer, padding) != padding) {
+		if (write(dst.fd, zero_buffer, padding) != padding) {
 			LOG_ERROR("Write error %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+		if (write(dst.fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
 			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
 
-		if (write(dest_fd, &jmp_add, sizeof(jmp_add)) !=
+		if (write(dst.fd, &jmp_add, sizeof(jmp_add)) !=
 		    sizeof(jmp_add)) {
 			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
@@ -658,12 +658,12 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	}
 
 	munmap((void *)ptr, src_size);
-	close(src_fd);
+	close(src.fd);
 
 	dest_size = dest_hdr_length + wrp_size + padding + src_data_length;
 
 	ptr = mmap(0, dest_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-		   dest_fd, 0);
+		   dst.fd, 0);
 
 	if (ptr == MAP_FAILED) {
 		LOG_ERROR("Can't write %s\n", destname);
@@ -688,7 +688,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			 srcname, destname);
 
 	munmap((void *)ptr, dest_size);
-	close(dest_fd);
+	close(dst.fd);
 	return 0;
 }
 
