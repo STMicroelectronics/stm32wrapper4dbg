@@ -814,7 +814,7 @@ int main(int argc, char *argv[])
 	char *dstname = NULL, *srcname = NULL;
 	struct stm32_file src = { NULL, };
 
-	while ((opt = getopt(argc, argv, "bfs:d:vV")) != -1) {
+	while ((opt = getopt(argc, argv, "bfs:d:vVh")) != -1) {
 		switch (opt) {
 		case 'b':
 			wrapper_before = 1;
@@ -834,10 +834,12 @@ int main(int argc, char *argv[])
 		case 'V':
 			LOG_ERROR("stm32wrapper4dbg version " VERSION "\n");
 			return 0;
+		case 'h':
 		default:
 			LOG_ERROR(
 				"Usage: %1$s -s srcfile -d destfile [-b] [-f]\n"
 				"       %1$s -V\n"
+				"       %1$s -h\n"
 				"  Add a debug wrapper to a stm32 image.\n"
 				"  If \"-b\" is not specified, the wrapper would be placed\n"
 				"  after the last byte of the image.\n"
@@ -848,6 +850,7 @@ int main(int argc, char *argv[])
 				"  -f           force re-adding the wrapper\n"
 				"  -v           verbose log\n"
 				"  -V           display tool version and quit\n"
+				"  -h           display this help and quit\n"
 				"\nSpecial srcfile values:\n",
 				argv[0]);
 			for (unsigned int i = 0; i < ARRAY_SIZE(stm32_socs); i++)
