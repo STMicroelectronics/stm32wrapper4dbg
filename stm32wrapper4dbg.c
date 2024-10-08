@@ -585,10 +585,9 @@ static int stm32image_close_source_file(struct stm32_file *src)
 	return 0;
 }
 
-static int stm32image_create_header_file(char *srcname, char *destname,
-					 int wrapper_before, int force)
+static int stm32image_create_dest_file(const char *destname, int wrapper_before,
+				       const struct stm32_file *src)
 {
-	struct stm32_file src = { NULL, };
 	struct stm32_file dst = { NULL, };
 	uint32_t src_hdr_length, dest_hdr_length;
 	unsigned char *src_data;
@@ -596,15 +595,12 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	uint32_t new_loadaddr, new_entry = 0;
 	uint32_t loadaddr, entry;
 
-	if (stm32image_open_source_file(srcname, force, &src))
-		return -1;
+	src_hdr_length = src->file_header_length;
+	src_data = ((uint8_t *)src->p) + src_hdr_length;
+	src_data_length = src->image_length;
 
-	src_hdr_length = src.file_header_length;
-	src_data = ((uint8_t *)src.p) + src_hdr_length;
-	src_data_length = src.image_length;
-
-	entry = src.image_entry_point;
-	loadaddr = src.load_address;
+	entry = src->image_entry_point;
+	loadaddr = src->load_address;
 
 	dst.fd = open(destname, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
 	if (dst.fd == -1) {
@@ -619,7 +615,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	wrp_size = src.soc->wrapper_size + sizeof(jmp_add);
+	wrp_size = src->soc->wrapper_size + sizeof(jmp_add);
 	if (wrapper_before == 1) {
 		wrp_loadaddr = ALIGN_DOWN(loadaddr - wrp_size,
 					  WRAPPER_ALIGNMENT);
@@ -631,12 +627,12 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		new_loadaddr = loadaddr;
 	}
 
-	new_entry = (src.soc->wrapper_is_arm_thumb) ? ARM_THUMB_ADDRESS(wrp_loadaddr) : wrp_loadaddr;
+	new_entry = (src->soc->wrapper_is_arm_thumb) ? ARM_THUMB_ADDRESS(wrp_loadaddr) : wrp_loadaddr;
 
 	jmp_add = __cpu_to_le32(entry);
 
 	if (wrapper_before == 1) {
-		if (write(dst.fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+		if (write(dst.fd, src->soc->wrapper, src->soc->wrapper_size) != src->soc->wrapper_size) {
 			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
@@ -664,7 +660,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			return -1;
 		}
 
-		if (write(dst.fd, src.soc->wrapper, src.soc->wrapper_size) != src.soc->wrapper_size) {
+		if (write(dst.fd, src->soc->wrapper, src->soc->wrapper_size) != src->soc->wrapper_size) {
 			LOG_ERROR("Write error on %s: %s\n", destname, strerror(errno));
 			return -1;
 		}
@@ -676,8 +672,6 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		}
 	}
 
-	stm32image_close_source_file(&src);
-
 	dst.file_size = dest_hdr_length + wrp_size + padding + src_data_length;
 
 	dst.p = mmap(0, dst.file_size, PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -687,9 +681,9 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		LOG_ERROR("Can't write %s\n", destname);
 		return -1;
 	}
-	dst.soc = src.soc;
+	dst.soc = src->soc;
 	dst.file_header_length = dest_hdr_length;
-	dst.version_number =	src.version_number;
+	dst.version_number =	src->version_number;
 	dst.image_length =	wrp_size + padding + src_data_length;
 	dst.image_entry_point =	new_entry;
 	dst.load_address =	new_loadaddr;
@@ -699,10 +693,10 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	stm32image_print_header(&dst);
 	LOG_INFO("Halt Address : 0x%08x\n", jmp_add);
 
-	if (src.is_signed)
-		LOG_INFO("\nATTENTION:\n\tSource file \"%s\" was \"signed\"!\n"
+	if (src->is_signed)
+		LOG_INFO("\nATTENTION:\n\tSource file was \"signed\"!\n"
 			 "\tYou would need to sign the destination file \"%s\"\n",
-			 srcname, destname);
+			 destname);
 
 	munmap(dst.p, dst.file_size);
 	close(dst.fd);
@@ -712,7 +706,8 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 int main(int argc, char *argv[])
 {
 	int opt, err, wrapper_before = 0, force = 0;
-	char *dest = NULL, *src = NULL;
+	char *dstname = NULL, *srcname = NULL;
+	struct stm32_file src = { NULL, };
 
 	while ((opt = getopt(argc, argv, "bfs:d:vV")) != -1) {
 		switch (opt) {
@@ -723,10 +718,10 @@ int main(int argc, char *argv[])
 			force = 1;
 			break;
 		case 's':
-			src = optarg;
+			srcname = optarg;
 			break;
 		case 'd':
-			dest = optarg;
+			dstname = optarg;
 			break;
 		case 'v':
 			verbose = true;
@@ -753,17 +748,23 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!src) {
+	if (!srcname) {
 		LOG_ERROR("Missing -s option\n");
 		return -1;
 	}
 
-	if (!dest) {
+	if (!dstname) {
 		LOG_ERROR("Missing -d option\n");
 		return -1;
 	}
 
-	err = stm32image_create_header_file(src, dest, wrapper_before, force);
+	err = stm32image_open_source_file(srcname, force, &src);
+	if (err)
+		return err;
+
+	err = stm32image_create_dest_file(dstname, wrapper_before, &src);
+
+	stm32image_close_source_file(&src);
 
 	return err;
 }
