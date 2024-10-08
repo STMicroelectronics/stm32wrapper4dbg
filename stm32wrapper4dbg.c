@@ -46,6 +46,8 @@
 
 #define ARRAY_SIZE(x)		(sizeof(x) / sizeof(*(x)))
 
+#define STM32_DUMMY_FW_LENGTH	16
+
 static uint8_t stm32_mp1_ca7_wrapper[] = {
 #include "wrapper_stm32mp15x_ca7.inc"
 };
@@ -139,6 +141,8 @@ struct stm32_soc {
 	const uint8_t *wrapper;
 	unsigned int wrapper_size;
 	bool wrapper_is_arm_thumb;
+	const char *dummy_name;
+	uint8_t *dummy_fw;
 };
 
 struct stm32_file {
@@ -155,6 +159,48 @@ struct stm32_file {
 	bool is_encrypted;
 };
 
+/*
+ * dummy code for armv7m thumb (CM33)
+ *		.word	0xXXXX0200 // SP
+ *		.word	0xXXXX0009 // reset
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *  label:
+ *	e7fe	b label
+ */
+static uint8_t stm32_dummy_fw_m33_thumb[STM32_DUMMY_FW_LENGTH] = {
+	0x00, 0x02, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0xfe, 0xe7,
+};
+
+/*
+ * dummy code for aarch32 thumb (CA7)
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *	bf00	nop
+ *  label:
+ *	e7fe	b label
+ */
+static uint8_t stm32_dummy_fw_a32_thumb[STM32_DUMMY_FW_LENGTH] = {
+	0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0x00, 0xbf, 0xfe, 0xe7,
+};
+
+/*
+ * dummy code for aarch64 (CA35)
+ *	d503201f	nop
+ *	d503201f	nop
+ *	d503201f	nop
+ *  label:
+ *	14000000	b label
+ */
+static uint8_t stm32_dummy_fw_a64[STM32_DUMMY_FW_LENGTH] = {
+	0x1f, 0x20, 0x03, 0xd5, 0x1f, 0x20, 0x03, 0xd5, 0x1f, 0x20, 0x03, 0xd5, 0x00, 0x00, 0x00, 0x14,
+};
+
 static const struct stm32_soc stm32_socs[] = {
 	{
 		.name =			"STM32MP13x Cortex-A7",
@@ -165,6 +211,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp1_ca7_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp1_ca7_wrapper),
 		.wrapper_is_arm_thumb =	true,
+		.dummy_name =		"dummy-mp13-ca7",
+		.dummy_fw =		stm32_dummy_fw_a32_thumb,
 	}, {
 		.name =			"STM32MP15x Cortex-A7",
 		.header_version =	HEADER_VERSION_V10,
@@ -174,6 +222,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp1_ca7_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp1_ca7_wrapper),
 		.wrapper_is_arm_thumb =	true,
+		.dummy_name =		"dummy-mp15-ca7",
+		.dummy_fw =		stm32_dummy_fw_a32_thumb,
 	}, {
 #ifdef STM32MP25x_REVA
 		.name =			"STM32MP25x Rev.A Cortex-A35",
@@ -184,6 +234,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp2_ca35_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp2_ca35_wrapper),
 		.wrapper_is_arm_thumb =	false,
+		.dummy_name =		"dummy-mp25reva-ca35",
+		.dummy_fw =		stm32_dummy_fw_a64,
 	}, {
 		.name =			"STM32MP25x Rev.A Cortex-M33",
 		.header_version =	HEADER_VERSION_V20,
@@ -193,6 +245,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp2_cm33_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp2_cm33_wrapper),
 		.wrapper_is_arm_thumb =	true,
+		.dummy_name =		"dummy-mp25reva-cm33",
+		.dummy_fw =		stm32_dummy_fw_m33_thumb,
 	}, {
 #endif /* STM32MP25x_REVA */
 		.name =			"STM32MP2[35]x Cortex-A35",
@@ -203,6 +257,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp2_ca35_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp2_ca35_wrapper),
 		.wrapper_is_arm_thumb =	false,
+		.dummy_name =		"dummy-mp25-ca35",
+		.dummy_fw =		stm32_dummy_fw_a64,
 	}, {
 		.name =			"STM32MP2[35]x Cortex-M33",
 		.header_version =	HEADER_VERSION_V22,
@@ -212,6 +268,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp2_cm33_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp2_cm33_wrapper),
 		.wrapper_is_arm_thumb =	true,
+		.dummy_name =		"dummy-mp25-cm33",
+		.dummy_fw =		stm32_dummy_fw_m33_thumb,
 	}, {
 		.name =			"STM32MP21x Cortex-A35",
 		.header_version =	HEADER_VERSION_V23,
@@ -221,6 +279,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp21_ca35_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp21_ca35_wrapper),
 		.wrapper_is_arm_thumb =	false,
+		.dummy_name =		"dummy-mp21-ca35",
+		.dummy_fw =		stm32_dummy_fw_a64,
 	}, {
 		.name =			"STM32MP21x Cortex-M33",
 		.header_version =	HEADER_VERSION_V23,
@@ -230,6 +290,8 @@ static const struct stm32_soc stm32_socs[] = {
 		.wrapper =		stm32_mp21_cm33_wrapper,
 		.wrapper_size =		ARRAY_SIZE(stm32_mp21_cm33_wrapper),
 		.wrapper_is_arm_thumb =	true,
+		.dummy_name =		"dummy-mp21-cm33",
+		.dummy_fw =		stm32_dummy_fw_m33_thumb,
 	},
 };
 
@@ -585,6 +647,49 @@ static int stm32image_close_source_file(struct stm32_file *src)
 	return 0;
 }
 
+static int stm32image_dummy_source(struct stm32_file *src, const struct stm32_soc *soc)
+{
+	unsigned int header_length;
+
+	switch (soc->header_version) {
+	case HEADER_VERSION_V10:
+		header_length = sizeof(struct stm32_header_v10);
+		break;
+
+	case HEADER_VERSION_V20:
+	case HEADER_VERSION_V22:
+		header_length = sizeof(struct stm32_header_v2x);
+		break;
+
+	case HEADER_VERSION_V23:
+	default:
+		header_length = sizeof(struct stm32_header_v23);
+		break;
+	};
+
+	src->p =		  soc->dummy_fw - header_length;
+	src->soc =		  soc;
+	src->file_header_length = header_length;
+	src->image_length =	  STM32_DUMMY_FW_LENGTH;
+	src->load_address =	  soc->mem_start;
+	src->version_number =	  0;
+	src->is_signed =	  false;
+	src->is_encrypted =	  false;
+
+	if (soc->binary_type == BIN_TYPE_CM33_IMAGE) {
+		uint32_t *fw = (uint32_t *)soc->dummy_fw;
+
+		src->image_entry_point = soc->mem_start + __le32_to_cpu(fw[1]);
+
+		fw[0] = __cpu_to_le32(soc->mem_start + __le32_to_cpu(fw[0])); // SP
+		fw[1] = __cpu_to_le32(src->image_entry_point);                // reset
+	} else {
+		src->image_entry_point = soc->mem_start + (soc->wrapper_is_arm_thumb ? 1 : 0);
+	}
+
+	return 0;
+}
+
 static int stm32image_create_dest_file(const char *destname, int wrapper_before,
 				       const struct stm32_file *src)
 {
@@ -742,8 +847,12 @@ int main(int argc, char *argv[])
 				"  -b           place the wrapper before the image\n"
 				"  -f           force re-adding the wrapper\n"
 				"  -v           verbose log\n"
-				"  -V           display tool version and quit\n",
+				"  -V           display tool version and quit\n"
+				"\nSpecial srcfile values:\n",
 				argv[0]);
+			for (unsigned int i = 0; i < ARRAY_SIZE(stm32_socs); i++)
+				LOG_ERROR("%c \"%s\"", i ? ',' : ' ', stm32_socs[i].dummy_name);
+			LOG_ERROR("\n");
 			return -1;
 		}
 	}
@@ -758,6 +867,17 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	/* check for dummy source file (infinite loop firmware) */
+	for (unsigned int i = 0; i < ARRAY_SIZE(stm32_socs); i++) {
+		if (strcmp(srcname, stm32_socs[i].dummy_name))
+			continue;
+
+		stm32image_dummy_source(&src, &stm32_socs[i]);
+
+		return stm32image_create_dest_file(dstname, wrapper_before, &src);
+	}
+
+	/* continue with real source file */
 	err = stm32image_open_source_file(srcname, force, &src);
 	if (err)
 		return err;
