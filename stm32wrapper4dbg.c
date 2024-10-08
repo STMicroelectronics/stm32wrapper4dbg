@@ -145,6 +145,7 @@ struct stm32_file {
 	void *p;
 	const struct stm32_soc *soc;
 	int fd;
+	size_t file_size;
 	uint32_t file_header_length;
 	uint32_t image_length;
 	uint32_t image_entry_point;
@@ -525,7 +526,6 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	struct stat sbuf;
 	uint32_t src_hdr_length, dest_hdr_length;
 	unsigned char *src_data;
-	size_t src_size, dest_size;
 	uint32_t src_data_length, jmp_add, padding, wrp_loadaddr, wrp_size;
 	uint32_t new_loadaddr, new_entry = 0;
 	uint32_t loadaddr, entry;
@@ -540,19 +540,19 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		return -1;
 	}
 
-	src_size = sbuf.st_size;
-	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src.fd, BLKGETSIZE64, &src_size) < 0)) {
+	src.file_size = sbuf.st_size;
+	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src.fd, BLKGETSIZE64, &src.file_size) < 0)) {
 		LOG_ERROR("Can't read size of %s\n", srcname);
 		return -1;
 	}
 
-	src.p = mmap(NULL, src_size, PROT_READ, MAP_SHARED, src.fd, 0);
+	src.p = mmap(NULL, src.file_size, PROT_READ, MAP_SHARED, src.fd, 0);
 	if (src.p == MAP_FAILED) {
 		LOG_ERROR("Can't read %s\n", srcname);
 		return -1;
 	}
 
-	if (stm32image_check_hdr(&src, src_size) < 0) {
+	if (stm32image_check_hdr(&src, src.file_size) < 0) {
 		LOG_ERROR("Not a valid image file %s\n", srcname);
 		return -1;
 	}
@@ -566,7 +566,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 	src_data = ((uint8_t *)src.p) + src_hdr_length;
 	src_data_length = src.image_length;
 
-	if (src_hdr_length + src_data_length < src_size)
+	if (src_hdr_length + src_data_length < src.file_size)
                 LOG_INFO("Strip extra padding from input file\n");
 
 	if (force == 0 && stm32image_check_wrapper(&src) < 0) {
@@ -655,12 +655,12 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		}
 	}
 
-	munmap(src.p, src_size);
+	munmap(src.p, src.file_size);
 	close(src.fd);
 
-	dest_size = dest_hdr_length + wrp_size + padding + src_data_length;
+	dst.file_size = dest_hdr_length + wrp_size + padding + src_data_length;
 
-	dst.p = mmap(0, dest_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+	dst.p = mmap(0, dst.file_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		   dst.fd, 0);
 
 	if (dst.p == MAP_FAILED) {
@@ -684,7 +684,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 			 "\tYou would need to sign the destination file \"%s\"\n",
 			 srcname, destname);
 
-	munmap(dst.p, dest_size);
+	munmap(dst.p, dst.file_size);
 	close(dst.fd);
 	return 0;
 }
