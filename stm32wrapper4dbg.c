@@ -518,72 +518,93 @@ static int stm32image_update_header(const struct stm32_file *f)
 	return 0;
 }
 
-static int stm32image_create_header_file(char *srcname, char *destname,
-					 int wrapper_before, int force)
+static int stm32image_open_source_file(const char *srcname, int force, struct stm32_file *src)
 {
-	struct stm32_file src = { NULL, };
-	struct stm32_file dst = { NULL, };
+	uint32_t src_hdr_length, src_data_length;
 	struct stat sbuf;
-	uint32_t src_hdr_length, dest_hdr_length;
-	unsigned char *src_data;
-	uint32_t src_data_length, jmp_add, padding, wrp_loadaddr, wrp_size;
-	uint32_t new_loadaddr, new_entry = 0;
-	uint32_t loadaddr, entry;
 
-	src.fd = open(srcname, O_RDONLY);
-	if (src.fd == -1) {
+	src->fd = open(srcname, O_RDONLY);
+	if (src->fd == -1) {
 		LOG_ERROR("Can't open %s: %s\n", srcname, strerror(errno));
 		return -1;
 	}
 
-	if (fstat(src.fd, &sbuf) < 0) {
+	if (fstat(src->fd, &sbuf) < 0) {
 		return -1;
 	}
 
-	src.file_size = sbuf.st_size;
-	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src.fd, BLKGETSIZE64, &src.file_size) < 0)) {
+	src->file_size = sbuf.st_size;
+	if ((sbuf.st_mode & S_IFBLK) && (ioctl(src->fd, BLKGETSIZE64, &src->file_size) < 0)) {
 		LOG_ERROR("Can't read size of %s\n", srcname);
 		return -1;
 	}
 
-	src.p = mmap(NULL, src.file_size, PROT_READ, MAP_SHARED, src.fd, 0);
-	if (src.p == MAP_FAILED) {
+	src->p = mmap(NULL, src->file_size, PROT_READ, MAP_SHARED, src->fd, 0);
+	if (src->p == MAP_FAILED) {
 		LOG_ERROR("Can't read %s\n", srcname);
 		return -1;
 	}
 
-	if (stm32image_check_hdr(&src, src.file_size) < 0) {
+	if (stm32image_check_hdr(src, src->file_size) < 0) {
 		LOG_ERROR("Not a valid image file %s\n", srcname);
 		return -1;
 	}
 
-	if (!src.soc->wrapper_size) {
-		LOG_ERROR("Image \"%s\" not supported yet\n", src.soc->name);
+	if (!src->soc->wrapper_size) {
+		LOG_ERROR("Image \"%s\" not supported yet\n", src->soc->name);
 		return -1;
 	}
 
-	src_hdr_length = src.file_header_length;
-	src_data = ((uint8_t *)src.p) + src_hdr_length;
-	src_data_length = src.image_length;
+	src_hdr_length = src->file_header_length;
+	src_data_length = src->image_length;
 
-	if (src_hdr_length + src_data_length < src.file_size)
+	if (src_hdr_length + src_data_length < src->file_size)
                 LOG_INFO("Strip extra padding from input file\n");
 
-	if (force == 0 && stm32image_check_wrapper(&src) < 0) {
+	if (force == 0 && stm32image_check_wrapper(src) < 0) {
 		LOG_ERROR("Wrapper already present in image file %s\n"
 			  "Use flag \"-f\" to force re-adding the wrapper\n",
 			  srcname);
 		return -1;
 	}
 
-	entry = src.image_entry_point;
-	loadaddr = src.load_address;
-
-	if (src.is_encrypted) {
+	if (src->is_encrypted) {
 		LOG_ERROR("Image %s is encrypted. Unable to extract the content.\n",
 			  srcname);
 		return -1;
 	}
+
+	return 0;
+}
+
+static int stm32image_close_source_file(struct stm32_file *src)
+{
+	munmap(src->p, src->file_size);
+	close(src->fd);
+
+	return 0;
+}
+
+static int stm32image_create_header_file(char *srcname, char *destname,
+					 int wrapper_before, int force)
+{
+	struct stm32_file src = { NULL, };
+	struct stm32_file dst = { NULL, };
+	uint32_t src_hdr_length, dest_hdr_length;
+	unsigned char *src_data;
+	uint32_t src_data_length, jmp_add, padding, wrp_loadaddr, wrp_size;
+	uint32_t new_loadaddr, new_entry = 0;
+	uint32_t loadaddr, entry;
+
+	if (stm32image_open_source_file(srcname, force, &src))
+		return -1;
+
+	src_hdr_length = src.file_header_length;
+	src_data = ((uint8_t *)src.p) + src_hdr_length;
+	src_data_length = src.image_length;
+
+	entry = src.image_entry_point;
+	loadaddr = src.load_address;
 
 	dst.fd = open(destname, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
 	if (dst.fd == -1) {
@@ -655,8 +676,7 @@ static int stm32image_create_header_file(char *srcname, char *destname,
 		}
 	}
 
-	munmap(src.p, src.file_size);
-	close(src.fd);
+	stm32image_close_source_file(&src);
 
 	dst.file_size = dest_hdr_length + wrp_size + padding + src_data_length;
 
