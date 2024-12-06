@@ -41,6 +41,12 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 %_cm33.elf: %_cm33.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e080000 $< -o $@
 
+wrapper_stm32mp25x_cm33.s: wrapper_stm32mp25x_cm33.c
+	$(CROSS_COMPILE_ARM32)gcc -Wall -Werror -Wstack-usage=0 -Os -g -fcall-used-r4 -fcall-used-r5 -ffixed-r7 -ffixed-r11 -ffixed-r14 -fconserve-stack -fomit-frame-pointer -mcpu=cortex-m33 -mthumb -S $< -o $@
+
+wrapper_stm32mp25x_cm33.elf: wrapper_stm32mp25x_cm33.s add_symbol.S
+	$(CROSS_COMPILE_ARM32)gcc -Wall -Werror -static -g -mcpu=cortex-m33 -mthumb -nostartfiles -Wl,-n -Wl,-Ttext,0x0e080000 -DASM_FILE=\"$<\" add_symbol.S -o $@
+
 %_ca35.elf: %_ca35.S
 	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none $< -o $@
 
