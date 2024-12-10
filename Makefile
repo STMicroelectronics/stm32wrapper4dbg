@@ -20,7 +20,7 @@ extra_dep += wrapper_stm32mp21x_ca35.inc wrapper_stm32mp25x_ca35.inc
 endif
 
 stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
-	$(CC) $(CFLAGS) $(LDFLAGS) -Wall $< -o $@
+	$(CC) -O2 $(CFLAGS) $(LDFLAGS) -Wall -Wextra $< -o $@
 
 %.inc: %.bin
 	echo '/* Generated automatically by Makefile */' > $@
