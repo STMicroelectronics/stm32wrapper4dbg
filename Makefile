@@ -33,7 +33,7 @@ stm32wrapper4dbg: stm32wrapper4dbg.c $(extra_dep)
 	$(CROSS_COMPILE_ARM32)objcopy -O binary $< $@
 
 %_ca35.bin: %_ca35.elf
-	$(CROSS_COMPILE_ARM64)objcopy -O binary $< $@
+	$(CROSS_COMPILE_ARM64)objcopy -R .eh_frame -O binary $< $@
 
 %_ca7.elf: %_ca7.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x2ffc2500 $< -o $@
@@ -46,6 +46,12 @@ wrapper_stm32mp25x_cm33.s: wrapper_stm32mp25x_cm33.c
 
 wrapper_stm32mp25x_cm33.elf: wrapper_stm32mp25x_cm33.s add_symbol.S
 	$(CROSS_COMPILE_ARM32)gcc -Wall -Werror -static -g -mcpu=cortex-m33 -mthumb -nostartfiles -Wl,-n -Wl,-Ttext,0x0e080000 -DASM_FILE=\"$<\" add_symbol.S -o $@
+
+wrapper_stm32mp25x_ca35.s: wrapper_stm32mp25x_ca35.c
+	$(CROSS_COMPILE_ARM64)gcc -Wall -Werror -Wstack-usage=0 -Os -g -fcall-used-x19 -fcall-used-x20 -fcall-used-x21 -fcall-used-x22 -fcall-used-x23 -fcall-used-x24 -fcall-used-x25 -fcall-used-x26 -fcall-used-x27 -fcall-used-x28 -fconserve-stack -fomit-frame-pointer -ffixed-x30 -mcpu=cortex-a35 -S $< -o $@
+
+wrapper_stm32mp25x_ca35.elf: wrapper_stm32mp25x_ca35.s add_symbol.S
+	$(CROSS_COMPILE_ARM64)gcc -Wall -Werror -static -g -mcpu=cortex-a35 -nostartfiles -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none -DASM_FILE=\"$<\" add_symbol.S -o $@
 
 %_ca35.elf: %_ca35.S
 	$(CROSS_COMPILE_ARM64)gcc -Wall -static -nostartfiles -mlittle-endian -Wa,-EL -Wl,-n -Wl,-Ttext,0x0e012000 -Wl,--build-id=none $< -o $@
